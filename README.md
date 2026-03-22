@@ -12,10 +12,15 @@ It can:
 ## Setup
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# install uv if you don't have it yet
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# install dependencies and create the virtual environment
+uv sync
 ```
+
+> All dependencies are declared in `pyproject.toml` and pinned in `uv.lock`.  
+> Never edit `requirements.txt` directly — use `uv add <package>` to add new dependencies.
 
 ## Configuration
 
@@ -196,14 +201,14 @@ OPENAI_MODEL=llama3     # must match the name used with `ollama pull`
 
 ```bash
 # MCP server (used by client / ask.py automatically)
-python main.py
+uv run main.py
 
 # Interactive REPL — asks questions about logs
-python ask.py test_app.log
-python ask.py app.log worker.log
+uv run ask.py test_app.log
+uv run ask.py app.log worker.log
 
 # Batch demo (runs 4 example tool calls)
-python client.py
+uv run client.py
 ```
 
 ## Tools
