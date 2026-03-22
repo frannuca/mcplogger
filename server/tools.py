@@ -3,18 +3,18 @@ from typing import Dict, List, Optional
 import requests
 from mcp.server.fastmcp import FastMCP
 
-from analyzer import LogAnalyzer
 from config import build_config
-from constants import (
+from config.constants import (
     DEFAULT_BUCKET_MINUTES,
     DEFAULT_CONTEXT_LINES,
     DEFAULT_HIGH_ERROR_THRESHOLD,
     DEFAULT_MAX_MATCHES,
     DEFAULT_MAX_SAMPLES,
 )
-from file_reader import get_reader
-from searcher import search_logs
-from summarizer import LLMSummarizer
+from core.analyzer import LogAnalyzer
+from core.file_reader import get_reader
+from llm.summarizer import LLMSummarizer
+from search.searcher import search_logs
 
 mcp = FastMCP("log-analyzer")
 

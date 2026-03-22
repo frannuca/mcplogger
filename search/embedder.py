@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
-from constants import (
+from config.constants import (
     EMBEDDING_BATCH_SIZE,
     EMBEDDING_PREFILTER_SIZE,
     EMBEDDING_SIMILARITY_THRESHOLD,

@@ -2,7 +2,7 @@
 """Test the log analyzer against test_app.log"""
 
 from config import build_config
-from analyzer import LogAnalyzer
+from core.analyzer import LogAnalyzer
 import json
 
 # Build config from .env (which points to test_app.log)

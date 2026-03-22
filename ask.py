@@ -22,7 +22,7 @@ import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from constants import DEFAULT_CONTEXT_LINES, DEFAULT_MAX_MATCHES
+from config.constants import DEFAULT_CONTEXT_LINES, DEFAULT_MAX_MATCHES
 
 # ── resolve log files ────────────────────────────────────────────────────────
 

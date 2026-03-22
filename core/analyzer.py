@@ -3,8 +3,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from config import Config
-from file_reader import get_reader
-from patterns import ERROR_PATTERNS, TS_FORMATS, TS_PATTERNS
+from core.file_reader import get_reader
+from core.patterns import ERROR_PATTERNS, TS_FORMATS, TS_PATTERNS
 
 
 class LogAnalyzer:

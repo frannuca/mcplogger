@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 import requests
 
 from config import Config
-from constants import (
+from config.constants import (
     DEFAULT_CONTEXT_LINES,
     DEFAULT_MAX_MATCHES,
     EMBEDDING_PREFILTER_SIZE,
@@ -14,10 +14,10 @@ from constants import (
     MIN_TERM_LENGTH,
     STOPWORDS,
 )
-from embedder import LogEmbedder
-from file_reader import get_reader
-from patterns import ERROR_PATTERNS
-from summarizer import LLMSummarizer
+from core.file_reader import get_reader
+from core.patterns import ERROR_PATTERNS
+from llm.summarizer import LLMSummarizer
+from search.embedder import LogEmbedder
 
 
 # ── prompt → regex ────────────────────────────────────────────────────────────
@@ -189,8 +189,12 @@ def _build_response(
                 model=cfg.openai_model,
                 base_url=cfg.llm_base_url,
             )
+            total_lines = sum(response["lines_buffered"].values())
             response["human_summary"] = llm.summarize_search(
-                prompt, [m["context"] for m in matches[:20]]
+                prompt,
+                [m["context"] for m in matches[:20]],
+                total_matches=len(matches),
+                total_lines=total_lines,
             )
         except requests.RequestException as exc:
             response["human_summary"] = f"Search summary API call failed: {exc}"

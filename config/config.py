@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from dotenv import load_dotenv
 
-from constants import (
+from .constants import (
     DEFAULT_BUCKET_MINUTES,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_HIGH_ERROR_THRESHOLD,

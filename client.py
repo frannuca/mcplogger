@@ -9,7 +9,7 @@ import subprocess
 import sys
 from typing import Any, Dict
 
-from constants import DEFAULT_MAX_MATCHES, DEFAULT_CONTEXT_LINES
+from config.constants import DEFAULT_MAX_MATCHES, DEFAULT_CONTEXT_LINES
 
 
 class MCPClient:

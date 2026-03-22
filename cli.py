@@ -4,25 +4,20 @@ Interactive MCP Log Analyzer CLI
 Ask questions about your logs directly.
 """
 
-import sys
 import os
-from pathlib import Path
+import requests
 
-from constants import (
+from config.constants import (
     DEFAULT_BUCKET_MINUTES,
     DEFAULT_CONTEXT_LINES,
     DEFAULT_HIGH_ERROR_THRESHOLD,
     DEFAULT_MAX_MATCHES,
     DEFAULT_MAX_SAMPLES,
 )
-
-# Add current directory to path
-sys.path.insert(0, str(Path(__file__).parent))
-
 from config import build_config
-from analyzer import LogAnalyzer
-from searcher import search_logs
-from summarizer import ChatGPTSummarizer
+from core.analyzer import LogAnalyzer
+from search.searcher import search_logs
+from llm.summarizer import ChatGPTSummarizer
 import requests
 
 
