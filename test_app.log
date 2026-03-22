@@ -1,0 +1,61 @@
+2024-03-21 08:15:22 INFO Starting application server
+2024-03-21 08:15:23 INFO Database connection established
+2024-03-21 08:15:25 DEBUG Loaded configuration from /etc/app/config.yaml
+2024-03-21 08:16:01 INFO API server listening on 0.0.0.0:8080
+2024-03-21 08:20:15 INFO Processing request from 192.168.1.100
+2024-03-21 08:21:33 WARNING High memory usage detected: 78%
+2024-03-21 08:25:42 ERROR Database query timeout after 30 seconds
+2024-03-21 08:25:43 ERROR Failed to fetch user profile: timeout
+2024-03-21 08:25:44 DEBUG Retrying database connection
+2024-03-21 08:26:15 INFO Database connection restored
+2024-03-21 08:30:22 INFO Processing batch job: UserCache_Update
+2024-03-21 08:35:01 ERROR Exception in thread "worker-1": NullPointerException
+2024-03-21 08:35:02 ERROR at com.example.service.UserService.getUserById(UserService.java:145)
+2024-03-21 08:35:03 ERROR at com.example.handler.RequestHandler.process(RequestHandler.java:89)
+2024-03-21 08:35:04 DEBUG Stack trace logged to /var/log/app/errors.log
+2024-03-21 08:40:15 INFO Graceful recovery initiated
+2024-03-21 08:45:30 INFO Request completed successfully
+2024-03-21 09:00:00 INFO Scheduled maintenance task started
+2024-03-21 09:05:22 ERROR Operation timeout: 120 second limit exceeded
+2024-03-21 09:05:23 CRITICAL System is entering degraded mode
+2024-03-21 09:05:24 CRITICAL Database connectivity issues detected
+2024-03-21 09:05:25 ERROR Failed to write to cache: connection refused
+2024-03-21 09:10:15 INFO Recovery process started
+2024-03-21 09:15:00 INFO System returned to normal operation
+2024-03-21 09:20:33 WARNING Cache eviction triggered due to memory pressure
+2024-03-21 09:25:15 ERROR API call failed with status code 503
+2024-03-21 09:25:16 ERROR Service unavailable: timeout waiting for upstream service
+2024-03-21 09:30:22 INFO Retrying failed requests: 5 attempts queued
+2024-03-21 09:35:01 ERROR 503 Service Unavailable - API server overloaded
+2024-03-21 09:35:02 ERROR 504 Gateway Timeout - upstream took too long
+2024-03-21 09:40:00 INFO Request queue processing: 2341 items pending
+2024-03-21 09:45:15 CRITICAL Fatal error in authentication module
+2024-03-21 09:45:16 CRITICAL Unable to verify JWT tokens - encryption service down
+2024-03-21 09:50:22 ERROR Exception caught: InvalidTokenException
+2024-03-21 09:50:23 ERROR at com.example.auth.JWTValidator.validate(JWTValidator.java:78)
+2024-03-21 10:00:00 INFO System attempting restart of auth service
+2024-03-21 10:05:15 INFO Authentication service restarted successfully
+2024-03-21 10:10:30 WARNING Request timeout: client did not respond within 45 seconds
+2024-03-21 10:15:01 ERROR Timeout exception: read operation exceeded 30s limit
+2024-03-21 10:15:02 DEBUG Closing stale connection
+2024-03-21 10:20:15 INFO Processing 450 requests per second (peak)
+2024-03-21 10:25:22 ERROR 500 Internal Server Error on /api/users/search
+2024-03-21 10:25:23 ERROR Stack trace: java.lang.RuntimeException: Null value in response
+2024-03-21 10:30:00 INFO Request succeeded after retry (attempt 2)
+2024-03-21 10:35:15 WARNING Database pool exhausted: 95/100 connections in use
+2024-03-21 10:40:22 ERROR Unable to acquire database connection: timeout after 10 seconds
+2024-03-21 10:45:01 INFO New database connections acquired: 50 additional connections
+2024-03-21 10:50:15 WARNING Memory usage spike: 85% utilized
+2024-03-21 11:00:00 INFO Garbage collection cycle completed: freed 200MB
+2024-03-21 11:05:22 ERROR Critical exception in worker thread
+2024-03-21 11:05:23 ERROR Exception message: Connection refused to 10.0.0.5:5432
+2024-03-21 11:05:24 FATAL Fatal error - system entering maintenance mode
+2024-03-21 11:10:15 INFO Starting recovery sequence
+2024-03-21 11:15:00 INFO All services recovered
+2024-03-21 11:20:30 INFO Application running normally
+2024-03-21 13:20:30 ERROR No disk space left on /var/log/app
+2024-03-21 13:25:15 ERROR Failed to write log entry: disk full
+2024-03-21 13:30:00 INFO Log rotation initiated to free up space
+2024-03-21 13:35:22 INFO Old log files
+2024-03-21 13:40:00 ERROR no disk space due to log files
+
