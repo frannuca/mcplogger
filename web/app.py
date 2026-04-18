@@ -275,6 +275,22 @@ def api_reset_cache():
     return jsonify(result)
 
 
+@app.route("/api/explain", methods=["POST"])
+def api_explain():
+    body = request.json or {}
+    error_line = body.get("error_line", "")
+    if not error_line.strip():
+        return jsonify({"error": "error_line is required"}), 400
+    result = session.call_tool("explain_error", {
+        "error_line": error_line,
+    })
+    if result is None:
+        return jsonify({"error": "No response"}), 500
+    if "error" in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+
 # ── entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

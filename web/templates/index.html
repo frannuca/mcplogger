@@ -191,6 +191,23 @@
 
     </div>
 
+    <!-- ── ERROR EXPLANATION PANEL ────────────────────────────────────── -->
+    <div id="explainSection" style="display:none;">
+      <div class="card">
+        <h2>🔬 Error Explanation
+          <button class="btn btn-secondary" style="float:right;font-size:11px;padding:4px 10px;" onclick="hideExplain()">✕ Close</button>
+        </h2>
+        <div class="explain-line" id="explainLine"></div>
+        <div class="spinner" id="explainSpinner"></div>
+        <div class="summary-box" id="explainBox">Asking LLM…</div>
+        <div id="explainWebResults"></div>
+        <div style="margin-top:12px;">
+          <button class="btn btn-secondary" id="explainGoogleBtn" style="font-size:12px;" onclick="searchGoogle()">🌐 Search Google</button>
+          <button class="btn btn-secondary" id="explainStackBtn" style="font-size:12px;" onclick="searchStackOverflow()">📚 Search Stack Overflow</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 </div>

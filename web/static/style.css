@@ -442,3 +442,70 @@ textarea { resize: vertical; min-height: 60px; }
   line-height: 1.4;
 }
 
+/* ── explain button ───────────────────────────────────────────────────────── */
+.btn-explain {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: auto;
+  white-space: nowrap;
+  transition: all .2s;
+}
+.btn-explain:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.match-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── explain panel ────────────────────────────────────────────────────────── */
+.explain-line {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--orange);
+  margin-bottom: 14px;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+/* ── web search results ───────────────────────────────────────────────────── */
+#explainWebResults h3 {
+  font-size: 14px;
+  margin: 16px 0 10px;
+  color: var(--text);
+}
+.web-result {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+.web-result a {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+}
+.web-result a:hover {
+  text-decoration: underline;
+}
+.web-result p {
+  color: var(--text2);
+  font-size: 12px;
+  margin: 4px 0 0;
+  line-height: 1.5;
+}
+

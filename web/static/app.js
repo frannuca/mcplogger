@@ -243,13 +243,14 @@ function renderMatches(matches) {
     el.innerHTML = '<p style="color:var(--text2);">No matching lines found.</p>';
     return;
   }
-  el.innerHTML = matches.map(m => {
+  el.innerHTML = matches.map((m, i) => {
     const sim = m.similarity != null ? `<span class="sim">sim ${m.similarity.toFixed(3)}</span>` : "";
     return `
       <div class="match-item">
         <div class="match-header">
           <span>${escHtml(m.file)}:${m.line_number}</span>
           ${sim}
+          <button class="btn-explain" onclick="explainError(this)" data-line="${escAttr(m.line || m.context)}">🔬 Explain</button>
         </div>
         <pre>${escHtml(m.context || m.line)}</pre>
       </div>`;
@@ -346,6 +347,79 @@ function escHtml(s) {
   const d = document.createElement("div");
   d.textContent = s || "";
   return d.innerHTML;
+}
+
+function escAttr(s) {
+  return (s || "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// ── error explanation ────────────────────────────────────────────────────────
+let currentExplainLine = "";
+
+async function explainError(btn) {
+  const line = btn.dataset.line;
+  if (!line) return;
+  currentExplainLine = line;
+
+  const section = document.getElementById("explainSection");
+  section.style.display = "block";
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  document.getElementById("explainLine").textContent = line;
+  document.getElementById("explainBox").textContent = "🌐 Searching the web and asking LLM…";
+  document.getElementById("explainSpinner").classList.add("visible");
+  document.getElementById("explainWebResults").innerHTML = "";
+
+  const data = await api("/api/explain", { error_line: line });
+  document.getElementById("explainSpinner").classList.remove("visible");
+
+  if (data.error) {
+    document.getElementById("explainBox").textContent = "Error: " + data.error;
+    return;
+  }
+  document.getElementById("explainBox").textContent = data.explanation || "(no explanation)";
+
+  // render web search results
+  const webResults = data.web_results || [];
+  const webEl = document.getElementById("explainWebResults");
+  if (webResults.length > 0) {
+    webEl.innerHTML = "<h3>🌐 Web Search Results</h3>" + webResults.map(r =>
+      `<div class="web-result">
+        <a href="${escAttr(r.url)}" target="_blank" rel="noopener">${escHtml(r.title)}</a>
+        <p>${escHtml(r.body)}</p>
+      </div>`
+    ).join("");
+  } else {
+    webEl.innerHTML = '<p style="color:var(--text2);font-size:12px;">No web results found.</p>';
+  }
+}
+
+function hideExplain() {
+  document.getElementById("explainSection").style.display = "none";
+}
+
+function _extractSearchTerms() {
+  // Extract the error type / key message from the log line for searching
+  const line = currentExplainLine;
+  // Remove timestamp prefix and common log prefixes
+  const cleaned = line
+    .replace(/^\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}\s*/, "")
+    .replace(/^(ERROR|WARN|CRITICAL|FATAL|INFO|DEBUG)\s*/i, "")
+    .replace(/^\[[\w\-]+\]\s*/, "")
+    .replace(/^\[[\w\-]+\]\s*/, "")
+    .trim();
+  // Take first 120 chars to keep the query reasonable
+  return cleaned.substring(0, 120);
+}
+
+function searchGoogle() {
+  const q = _extractSearchTerms();
+  window.open("https://www.google.com/search?q=" + encodeURIComponent(q), "_blank");
+}
+
+function searchStackOverflow() {
+  const q = _extractSearchTerms();
+  window.open("https://stackoverflow.com/search?q=" + encodeURIComponent(q), "_blank");
 }
 
 // ── keyboard shortcut: Ctrl+Enter to submit ──────────────────────────────────
@@ -517,7 +591,12 @@ function showClusterDetail(idx) {
     lineContainer.innerHTML = '<p style="color:var(--text2);">No sample lines.</p>';
   } else {
     lineContainer.innerHTML = cluster.sample_lines.map(line =>
-      `<div class="match-item"><pre>${escHtml(line)}</pre></div>`
+      `<div class="match-item">
+        <div class="match-header" style="justify-content:flex-end;">
+          <button class="btn-explain" onclick="explainError(this)" data-line="${escAttr(line)}">🔬 Explain</button>
+        </div>
+        <pre>${escHtml(line)}</pre>
+      </div>`
     ).join("");
   }
 }

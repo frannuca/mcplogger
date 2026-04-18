@@ -88,6 +88,60 @@ class LLMSummarizer:
         _log(f"LLM prompt size: {len(prompt)} chars (~{len(prompt) // 4} tokens)")
         return self._call(prompt)
 
+    def explain_error_line(self, error_line: str) -> str:
+        """Search the web for the error, then ask the LLM to explain it using the search results as context."""
+        import re
+
+        # Extract the meaningful part of the log line for searching
+        search_query = re.sub(
+            r"^\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}\s*", "", error_line
+        )
+        search_query = re.sub(r"^(ERROR|WARN|CRITICAL|FATAL|INFO|DEBUG)\s*", "", search_query, flags=re.IGNORECASE)
+        search_query = re.sub(r"^\[[\w\-]+\]\s*", "", search_query)
+        search_query = re.sub(r"^\[[\w\-]+\]\s*", "", search_query)
+        search_query = search_query.strip()[:150]
+
+        # Search the web for this error
+        web_context = ""
+        web_results = []
+        try:
+            from ddgs import DDGS
+            with DDGS() as ddgs:
+                results = list(ddgs.text(search_query, max_results=5))
+            if results:
+                web_results = results
+                web_context = "\n\nWeb search results for this error:\n"
+                for i, r in enumerate(results, 1):
+                    web_context += f"\n[{i}] {r.get('title', '')}\n    {r.get('body', '')}\n    URL: {r.get('href', '')}\n"
+                _log(f"Web search returned {len(results)} results for: {search_query[:80]}")
+            else:
+                _log(f"Web search returned no results for: {search_query[:80]}")
+        except Exception as exc:
+            _log(f"Web search failed (continuing without): {exc}")
+
+        prompt = (
+            "You are an expert SRE and software engineer. A production log line is shown below"
+        )
+        if web_context:
+            prompt += ", along with web search results about this error"
+        prompt += (
+            ".\n\n"
+            "Explain this error in detail. Your response MUST include ALL of these sections:\n\n"
+            "**What it means:** (plain-English explanation of the error)\n\n"
+            "**Common causes:** (list the 2–3 most likely root causes)\n\n"
+            "**Impact:** (what breaks or degrades when this happens)\n\n"
+            "**How to fix it:**\n"
+            "1. (specific action or command)\n"
+            "2. (specific action or command)\n"
+            "3. (specific action or command)\n\n"
+            "**Useful links:** (list the most relevant URLs from the search results, if available)\n\n"
+            "---\n"
+            f"Log line:\n{error_line}"
+            f"{web_context}"
+        )
+        _log(f"Explain prompt size: {len(prompt)} chars (~{len(prompt) // 4} tokens)")
+        return self._call(prompt)
+
     # ── internals ─────────────────────────────────────────────────────────────
 
     def _call(self, prompt: str) -> str:

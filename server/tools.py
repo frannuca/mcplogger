@@ -169,6 +169,76 @@ def search_logs_tool(
 
 
 @mcp.tool()
+def explain_error(
+    error_line: Annotated[
+        str,
+        Field(description="The full log line to explain. Copy-paste the exact line from the log."),
+    ],
+    openai_model: Annotated[
+        Optional[str],
+        Field(description="Override the LLM model name."),
+    ] = None,
+) -> Dict:
+    """
+    Explain a specific error log line in depth: what it means, common causes,
+    impact, how to fix it, and relevant web links.
+
+    Searches the internet for the error first, then uses the LLM to produce
+    a detailed explanation enriched with real web results.
+
+    USE THIS TOOL WHEN the user selects a specific error line and wants to
+    understand it in detail, or wants to know how to fix it.
+    """
+    import re
+    cfg = build_config(
+        log_files=None,
+        bucket_minutes=DEFAULT_BUCKET_MINUTES,
+        high_error_threshold=DEFAULT_HIGH_ERROR_THRESHOLD,
+        max_samples=1,
+        openai_model=openai_model,
+    )
+
+    # Search the web for this error
+    web_results = []
+    try:
+        from ddgs import DDGS
+        search_query = re.sub(
+            r"^\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}\s*", "", error_line
+        )
+        search_query = re.sub(r"^(ERROR|WARN|CRITICAL|FATAL|INFO|DEBUG)\s*", "", search_query, flags=re.IGNORECASE)
+        search_query = re.sub(r"^\[[\w\-]+\]\s*", "", search_query)
+        search_query = re.sub(r"^\[[\w\-]+\]\s*", "", search_query)
+        search_query = search_query.strip()[:150]
+        with DDGS() as ddgs:
+            web_results = list(ddgs.text(search_query, max_results=5))
+    except Exception:
+        pass  # web search is best-effort
+
+    result = {
+        "error_line": error_line,
+        "web_results": [
+            {"title": r.get("title", ""), "body": r.get("body", ""), "url": r.get("href", "")}
+            for r in web_results
+        ],
+    }
+
+    if not cfg.llm_api_key:
+        result["explanation"] = "LLM not configured — see web results below."
+        return result
+
+    try:
+        result["explanation"] = LLMSummarizer(
+            api_key=cfg.llm_api_key,
+            model=cfg.openai_model,
+            base_url=cfg.llm_base_url,
+        ).explain_error_line(error_line)
+    except requests.RequestException as exc:
+        result["explanation"] = f"LLM API call failed: {exc}"
+
+    return result
+
+
+@mcp.tool()
 def reset_file_cache(
     log_files: Annotated[
         Optional[List[str]],
