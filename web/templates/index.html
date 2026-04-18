@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Log Analyzer</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── HEADER ─────────────────────────────────────────────────────────── -->
+  <header>
+    <h1><span class="icon">📊</span> MCP Log Analyzer</h1>
+    <div id="statusBadge" class="status-badge stopped">
+      <span class="dot"></span>
+      <span id="statusText">Stopped</span>
+    </div>
+  </header>
+
+  <!-- ── TABS ───────────────────────────────────────────────────────────── -->
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="config">⚙️ Configuration</button>
+    <button class="tab-btn" data-tab="analysis" id="tabAnalysis">🔍 Analysis</button>
+  </div>
+
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <!-- TAB: CONFIGURATION                                                    -->
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <div class="tab-panel active" id="panelConfig">
+
+    <!-- model selection -->
+    <div class="card">
+      <h2>🧠 LLM Backend</h2>
+      <div class="mode-group">
+        <div class="mode-option selected" data-mode="local" onclick="selectMode('local')">
+          <div class="mode-icon">🖥️</div>
+          <div class="mode-label">Local Model</div>
+          <div class="mode-desc">llama.cpp / Ollama on your machine</div>
+        </div>
+        <div class="mode-option" data-mode="remote" onclick="selectMode('remote')">
+          <div class="mode-icon">☁️</div>
+          <div class="mode-label">Remote API</div>
+          <div class="mode-desc">OpenAI, Anthropic, etc.</div>
+        </div>
+      </div>
+
+      <!-- local fields -->
+      <div id="localFields">
+        <div class="form-row">
+          <div>
+            <label>LLM Server URL (chat/completions)</label>
+            <input type="url" id="llmUrl" value="http://localhost:8080/v1" placeholder="http://localhost:8080/v1">
+          </div>
+          <div>
+            <label>Embedding Server URL (optional)</label>
+            <input type="url" id="embeddingUrl" value="" placeholder="http://localhost:8081/v1">
+          </div>
+        </div>
+        <label>Model Name</label>
+        <input type="text" id="localModel" value="local" placeholder="local (llama.cpp ignores this)">
+      </div>
+
+      <!-- remote fields -->
+      <div id="remoteFields" class="hidden">
+        <label>API Key</label>
+        <input type="password" id="apiKey" placeholder="sk-...">
+        <label>Model</label>
+        <input type="text" id="remoteModel" value="gpt-4o-mini" placeholder="gpt-4o-mini">
+      </div>
+    </div>
+
+    <!-- log files -->
+    <div class="card">
+      <h2>📁 Log Files</h2>
+      <p style="font-size:13px; color:var(--text2); margin-bottom:12px;">
+        Add absolute paths to the log files you want to analyze. Files are tailed live — new lines appear on each query.
+      </p>
+      <div id="logFileTags" class="tag-list"></div>
+      <div style="display:flex; gap:10px;">
+        <input type="text" id="logFileInput" placeholder="/var/log/app.log" style="margin-bottom:0;">
+        <button class="btn btn-secondary" onclick="addLogFile()">Add</button>
+      </div>
+    </div>
+
+    <!-- start / stop -->
+    <div class="card">
+      <h2>🚀 Server Control</h2>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="btnStart" onclick="startServer()">▶ Start Server</button>
+        <button class="btn btn-danger"  id="btnStop" onclick="stopServer()" disabled>■ Stop Server</button>
+        <button class="btn btn-secondary" id="btnReset" onclick="resetCache()" disabled>🔄 Reset Cache</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <!-- TAB: ANALYSIS                                                         -->
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <div class="tab-panel" id="panelAnalysis">
+
+    <!-- prompt bar -->
+    <div class="prompt-bar">
+      <textarea id="promptInput" rows="1"
+        placeholder="Ask anything… e.g. 'show me database timeout errors' or 'give me a health check'"></textarea>
+      <button class="btn btn-primary" onclick="submitQuery()">Ask</button>
+      <button class="btn btn-secondary" onclick="runAnalyze()">📊 Full Analysis</button>
+    </div>
+
+    <div class="spinner" id="spinner"></div>
+
+    <!-- stat boxes -->
+    <div class="stat-row" id="statRow" style="display:none;">
+      <div class="stat-box">
+        <div class="stat-value" id="statTotal">—</div>
+        <div class="stat-label">Total Lines</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="statErrors">—</div>
+        <div class="stat-label">Error Lines</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="statRate">—</div>
+        <div class="stat-label">Error Rate</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="statMatches">—</div>
+        <div class="stat-label">Matches</div>
+      </div>
+    </div>
+
+    <!-- results grid -->
+    <div class="results-grid" id="resultsGrid" style="display:none;">
+
+      <!-- left: summary -->
+      <div class="card">
+        <h2>🤖 AI Summary</h2>
+        <div class="summary-box" id="summaryBox">No results yet.</div>
+      </div>
+
+      <!-- right: pie chart -->
+      <div class="card">
+        <h2>📈 Error Breakdown</h2>
+        <div class="chart-container">
+          <canvas id="pieChart"></canvas>
+        </div>
+      </div>
+
+      <!-- full width: matching lines -->
+      <div class="card results-full">
+        <h2>📋 Matching Lines <span id="matchCount" style="font-weight:400;color:var(--text2);font-size:13px;"></span></h2>
+        <div class="match-list" id="matchList">
+          <p style="color:var(--text2);">Run a query to see results.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- toast -->
+<div class="toast" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
+

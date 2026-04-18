@@ -18,6 +18,7 @@ from core.file_reader import get_reader
 from core.patterns import ERROR_PATTERNS
 from llm.summarizer import LLMSummarizer
 from search.embedder import LogEmbedder
+from search.time_filter import filter_lines_by_time, parse_time_window, strip_time_phrase
 
 
 # ── prompt → regex ────────────────────────────────────────────────────────────
@@ -56,7 +57,9 @@ def _regex_search(
     max_matches: int,
     context_lines: int,
 ) -> Dict:
-    matcher = keyword_regex_from_prompt(prompt)
+    time_window = parse_time_window(prompt)
+    search_prompt = strip_time_phrase(prompt) if time_window else prompt
+    matcher = keyword_regex_from_prompt(search_prompt)
     matches: List[Dict] = []
     missing_files: List[str] = []
 
@@ -65,17 +68,27 @@ def _regex_search(
             missing_files.append(str(path))
             continue
 
-        lines = get_reader().read_lines(path)
+        all_lines = get_reader().read_lines(path)
 
-        for idx, clean in enumerate(lines):
+        # apply time window if present
+        if time_window:
+            indexed_lines, _ = filter_lines_by_time(all_lines, time_window)
+        else:
+            indexed_lines = [(i, l) for i, l in enumerate(all_lines)]
+
+        for idx, clean in indexed_lines:
             if matcher.search(clean) or any(p.search(clean) for p in ERROR_PATTERNS.values()):
-                matches.append(_make_match(str(path), idx, clean, lines, context_lines))
+                matches.append(_make_match(str(path), idx, clean, all_lines, context_lines))
                 if len(matches) >= max_matches:
                     break
         if len(matches) >= max_matches:
             break
 
-    return _build_response(cfg, prompt, matches, missing_files, search_mode="regex")
+    # rank matches by relevance instead of file order
+    matches = _rank_matches(cfg, search_prompt, matches)
+
+    return _build_response(cfg, prompt, matches, missing_files, search_mode="regex",
+                           time_window=str(time_window) if time_window else None)
 
 
 # ── semantic search (embedding-based) ────────────────────────────────────────
@@ -93,6 +106,9 @@ def _semantic_search(
       2. Embed + rank      → cosine similarity against the prompt vector,
          return top-N above the similarity threshold
     """
+    time_window = parse_time_window(prompt)
+    search_prompt = strip_time_phrase(prompt) if time_window else prompt
+
     embedder = LogEmbedder(
         base_url=cfg.llm_embedding_url,
         model=cfg.llm_embedding_model,
@@ -100,7 +116,7 @@ def _semantic_search(
     )
 
     # broad regex pre-filter — any error pattern OR any prompt keyword
-    broad_matcher = keyword_regex_from_prompt(prompt)
+    broad_matcher = keyword_regex_from_prompt(search_prompt)
     missing_files: List[str] = []
     # (path_str, line_index, clean_line, all_lines_for_that_file)
     candidates: List[Tuple[str, int, str, List[str]]] = []
@@ -110,13 +126,19 @@ def _semantic_search(
             missing_files.append(str(path))
             continue
 
-        lines = get_reader().read_lines(path)
+        all_lines = get_reader().read_lines(path)
 
-        for idx, clean in enumerate(lines):
+        # apply time window if present
+        if time_window:
+            indexed_lines, _ = filter_lines_by_time(all_lines, time_window)
+        else:
+            indexed_lines = [(i, l) for i, l in enumerate(all_lines)]
+
+        for idx, clean in indexed_lines:
             is_error = any(p.search(clean) for p in ERROR_PATTERNS.values())
             is_keyword = broad_matcher.search(clean)
             if is_error or is_keyword:
-                candidates.append((str(path), idx, clean, lines))
+                candidates.append((str(path), idx, clean, all_lines))
             if len(candidates) >= EMBEDDING_PREFILTER_SIZE:
                 break
         if len(candidates) >= EMBEDDING_PREFILTER_SIZE:
@@ -125,7 +147,8 @@ def _semantic_search(
     _log(f"Pre-filter kept {len(candidates)} / {EMBEDDING_PREFILTER_SIZE} candidates")
 
     if not candidates:
-        return _build_response(cfg, prompt, [], missing_files, search_mode="semantic")
+        return _build_response(cfg, prompt, [], missing_files, search_mode="semantic",
+                               time_window=str(time_window) if time_window else None)
 
     # embed candidates + rank by cosine similarity
     candidate_texts = [c[2] for c in candidates]
@@ -142,10 +165,55 @@ def _semantic_search(
         m["similarity"] = score
         matches.append(m)
 
-    return _build_response(cfg, prompt, matches, missing_files, search_mode="semantic")
+    return _build_response(cfg, prompt, matches, missing_files, search_mode="semantic",
+                           time_window=str(time_window) if time_window else None)
 
 
 # ── shared helpers ─────────────────────────────────────────────────────────────
+
+def _rank_matches(cfg: Config, prompt: str, matches: List[Dict]) -> List[Dict]:
+    """
+    Re-rank matches by semantic proximity to the prompt.
+
+    - If an embedding server is configured, use cosine similarity.
+    - Otherwise, fall back to keyword hit-count scoring.
+
+    Either way the result list is sorted descending by relevance.
+    """
+    if not matches:
+        return matches
+
+    # ── try embedding-based ranking ───────────────────────────────────────
+    if cfg.llm_embedding_url:
+        try:
+            embedder = LogEmbedder(
+                base_url=cfg.llm_embedding_url,
+                model=cfg.llm_embedding_model,
+                api_key=cfg.llm_api_key or "local",
+            )
+            texts = [m["line"] for m in matches]
+            ranked = embedder.rank_lines(prompt, texts, top_n=len(texts), threshold=0.0)
+            # ranked is [(idx, score), ...] sorted descending
+            reordered = []
+            for idx, score in ranked:
+                m = matches[idx].copy()
+                m["similarity"] = score
+                reordered.append(m)
+            _log(f"Re-ranked {len(reordered)} matches by embedding similarity")
+            return reordered
+        except Exception as exc:
+            _log(f"Embedding re-rank failed, falling back to keyword scoring: {exc}")
+
+    # ── fallback: keyword frequency scoring ───────────────────────────────
+    matcher = keyword_regex_from_prompt(prompt)
+    for m in matches:
+        hits = len(matcher.findall(m["line"]))
+        m["similarity"] = round(hits / max(len(m["line"].split()), 1), 4)
+
+    matches.sort(key=lambda m: m.get("similarity", 0), reverse=True)
+    _log(f"Re-ranked {len(matches)} matches by keyword frequency")
+    return matches
+
 
 def _make_match(
     path_str: str,
@@ -171,10 +239,12 @@ def _build_response(
     matches: List[Dict],
     missing_files: List[str],
     search_mode: str,
+    time_window: str = None,
 ) -> Dict:
     response = {
         "query": prompt,
         "search_mode": search_mode,
+        "time_window": time_window,
         "log_files": [str(p) for p in cfg.log_files],
         "lines_buffered": {str(p): get_reader().buffered_count(p) for p in cfg.log_files},
         "missing_files": missing_files,

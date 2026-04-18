@@ -13,13 +13,16 @@ STOPWORDS: frozenset = frozenset({
     "with", "from", "that", "this", "there", "where", "when",
     "what", "error", "errors", "issue", "issues", "problem", "problems",
     "log", "logs", "find", "show", "any", "all", "the", "for",
+    "last", "past", "since", "within", "recent", "ago",
+    "seconds", "second", "minutes", "minute", "hours", "hour", "days", "day",
+    "give", "how", "many", "much",
 })
 
 # Regex used when no meaningful keyword survives STOPWORDS filtering
 FALLBACK_SEARCH_PATTERN: str = r"error|timeout|exception|critical|fatal|5\d\d"
 
 # Maximum keyword terms extracted from a single prompt
-MAX_PROMPT_TERMS: int = 10
+MAX_PROMPT_TERMS: int = 250
 
 # Minimum character length for a prompt token to be kept
 MIN_TERM_LENGTH: int = 3

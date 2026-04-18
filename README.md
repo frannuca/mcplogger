@@ -200,15 +200,15 @@ OPENAI_MODEL=llama3     # must match the name used with `ollama pull`
 ## Run
 
 ```bash
-# MCP server (used by client / ask.py automatically)
-uv run main.py
+# ── Web UI (recommended) ──
+uv run python web/app.py                    # http://localhost:5000
+uv run python web/app.py --port 8888        # custom port
 
-# Interactive REPL — asks questions about logs
-uv run ask.py test_app.log
-uv run ask.py app.log worker.log
-
-# Batch demo (runs 4 example tool calls)
-uv run client.py
+# ── CLI tools ──
+uv run main.py                              # MCP server (stdio)
+uv run smart_ask.py test_app.log            # LLM picks the tool automatically
+uv run ask.py test_app.log                  # interactive REPL
+uv run client.py                            # batch demo
 ```
 
 ## Tools
