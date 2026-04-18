@@ -32,6 +32,15 @@ class LLMSummarizer:
     # ── public methods ────────────────────────────────────────────────────────
 
     def summarize_findings(self, findings: Dict) -> str:
+        # Build a compact subset — the LLM doesn't need every sample line
+        compact = {
+            "total_lines": findings.get("total_lines"),
+            "error_lines": findings.get("error_lines"),
+            "error_rate": findings.get("error_rate"),
+            "pattern_counts": findings.get("pattern_counts"),
+            "high_error_windows": findings.get("high_error_windows") or [],
+            "sample_error_lines": findings.get("sample_error_lines") or [],
+        }
         prompt = (
             "You are an SRE assistant. Explain these log findings for a human operator. "
             "You MUST complete every section fully before stopping.\n\n"
@@ -45,8 +54,9 @@ class LLMSummarizer:
             "3. (specific command or action)\n\n"
             "Interpret any quantitative request in the prompt (e.g. percentage of errors).\n\n"
             "---\n"
-            f"Findings JSON:\n{json.dumps(findings, indent=2)}"
+            f"Findings JSON:\n{json.dumps(compact, separators=(',', ':'))}"
         )
+        _log(f"LLM prompt size: {len(prompt)} chars (~{len(prompt) // 4} tokens)")
         return self._call(prompt)
 
     def summarize_search(
@@ -73,8 +83,9 @@ class LLMSummarizer:
             "---\n"
             f"Operator question: {prompt_text}\n\n"
             f"Statistics:\n{stats}\n\n"
-            f"Sample matching log lines ({len(matches)} shown):\n{json.dumps(matches, indent=2)}"
+            f"Matching log lines ({len(matches)} shown):\n{json.dumps(matches, separators=(',', ':'))}"
         )
+        _log(f"LLM prompt size: {len(prompt)} chars (~{len(prompt) // 4} tokens)")
         return self._call(prompt)
 
     # ── internals ─────────────────────────────────────────────────────────────

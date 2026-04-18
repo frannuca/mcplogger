@@ -27,10 +27,28 @@ class LogAnalyzer:
     def _tag_line(self, line: str) -> List[str]:
         return [name for name, pattern in ERROR_PATTERNS.items() if pattern.search(line)]
 
+    def _in_time_range(self, ts: Optional[datetime]) -> bool:
+        """Return True if ts is within the configured time range (or no range set)."""
+        if ts is None:
+            return True
+        if self.cfg.time_start and ts < self.cfg.time_start:
+            return False
+        if self.cfg.time_end and ts > self.cfg.time_end:
+            return False
+        if self.cfg.hour_min is not None and self.cfg.hour_max is not None:
+            h = ts.hour
+            if self.cfg.hour_min <= self.cfg.hour_max:
+                if not (self.cfg.hour_min <= h <= self.cfg.hour_max):
+                    return False
+            else:  # wraps around midnight
+                if not (h >= self.cfg.hour_min or h <= self.cfg.hour_max):
+                    return False
+        return True
+
     def analyze(self) -> Dict:
         totals = {"lines": 0, "error_lines": 0}
         pattern_counts: Counter = Counter()
-        sample_lines: List[str] = []
+        all_error_lines: List[str] = []
         bucket_stats = defaultdict(lambda: {"total": 0, "errors": 0})
         missing_files: List[str] = []
 
@@ -41,9 +59,14 @@ class LogAnalyzer:
                 continue
 
             for clean in _reader.read_lines(path):
+                ts = self._parse_timestamp(clean)
+
+                # skip lines outside the requested time range
+                if not self._in_time_range(ts):
+                    continue
+
                 totals["lines"] += 1
 
-                ts = self._parse_timestamp(clean)
                 if ts:
                     bucket = ts.replace(second=0, microsecond=0)
                     bucket = bucket - timedelta(minutes=bucket.minute % self.cfg.bucket_minutes)
@@ -53,10 +76,11 @@ class LogAnalyzer:
                 if tags:
                     totals["error_lines"] += 1
                     pattern_counts.update(tags)
-                    if len(sample_lines) < self.cfg.max_samples:
-                        sample_lines.append(clean[:500])
+                    all_error_lines.append(clean)
                     if ts:
                         bucket_stats[bucket]["errors"] += 1
+
+        sample_lines = all_error_lines
 
         error_rate = (totals["error_lines"] / totals["lines"]) if totals["lines"] else 0.0
 

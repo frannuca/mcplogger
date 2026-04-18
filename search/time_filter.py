@@ -137,6 +137,80 @@ def filter_lines_by_time(
     return result, now
 
 
+def filter_lines_by_hour_range(
+    lines: List[str],
+    hour_min: int,
+    hour_max: int,
+    date_start: Optional[datetime] = None,
+    date_end: Optional[datetime] = None,
+) -> List[Tuple[int, str]]:
+    """
+    Return only lines whose timestamp hour falls within ``[hour_min, hour_max]``
+    and (optionally) whose date falls within ``[date_start, date_end]``.
+
+    Supports wrap-around hour ranges, e.g. hour_min=22, hour_max=4 means
+    22:00–23:59 and 00:00–04:59.
+
+    Returns a list of ``(original_index, line_text)`` tuples.
+    """
+    hour_min = max(0, min(23, hour_min))
+    hour_max = max(0, min(23, hour_max))
+    wraps = hour_min > hour_max
+
+    result: List[Tuple[int, str]] = []
+    for idx, line in enumerate(lines):
+        ts = _parse_line_ts(line)
+        if ts is not None:
+            # date filter
+            if date_start and ts < date_start:
+                continue
+            if date_end and ts > date_end:
+                continue
+            # hour filter
+            h = ts.hour
+            in_range = (hour_min <= h <= hour_max) if not wraps else (h >= hour_min or h <= hour_max)
+            if in_range:
+                result.append((idx, line))
+        elif result and (idx - result[-1][0]) <= 5:
+            result.append((idx, line))
+
+    label_parts = [f"[{hour_min}:00–{hour_max}:59]"]
+    if date_start or date_end:
+        ds = date_start.date() if date_start else "…"
+        de = date_end.date() if date_end else "…"
+        label_parts.append(f"dates {ds}→{de}")
+    _log(f"Hour range filter {' '.join(label_parts)}: {len(result)} / {len(lines)} lines")
+    return result
+
+
+def filter_lines_by_date_range(
+    lines: List[str],
+    date_start: Optional[datetime] = None,
+    date_end: Optional[datetime] = None,
+) -> List[Tuple[int, str]]:
+    """
+    Return only lines whose timestamp falls within ``[date_start, date_end]``.
+
+    Returns a list of ``(original_index, line_text)`` tuples.
+    """
+    result: List[Tuple[int, str]] = []
+    for idx, line in enumerate(lines):
+        ts = _parse_line_ts(line)
+        if ts is not None:
+            if date_start and ts < date_start:
+                continue
+            if date_end and ts > date_end:
+                continue
+            result.append((idx, line))
+        elif result and (idx - result[-1][0]) <= 5:
+            result.append((idx, line))
+
+    ds = date_start.date() if date_start else "…"
+    de = date_end.date() if date_end else "…"
+    _log(f"Date range filter [{ds}→{de}]: {len(result)} / {len(lines)} lines")
+    return result
+
+
 def _log(msg: str) -> None:
     print(f"[time_filter] {msg}", file=sys.stderr, flush=True)
 

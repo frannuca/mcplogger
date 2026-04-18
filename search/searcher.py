@@ -18,7 +18,7 @@ from core.file_reader import get_reader
 from core.patterns import ERROR_PATTERNS
 from llm.summarizer import LLMSummarizer
 from search.embedder import LogEmbedder
-from search.time_filter import filter_lines_by_time, parse_time_window, strip_time_phrase
+from search.time_filter import filter_lines_by_date_range, filter_lines_by_hour_range, filter_lines_by_time, parse_time_window, strip_time_phrase
 
 
 # ── prompt → regex ────────────────────────────────────────────────────────────
@@ -51,6 +51,21 @@ def search_logs(
 
 # ── regex search (default) ────────────────────────────────────────────────────
 
+def _apply_time_filters(cfg: Config, all_lines: List[str], time_window) -> List[Tuple[int, str]]:
+    """Apply hour-range, date-range, and/or prompt time-window filters to lines."""
+    if cfg.hour_min is not None and cfg.hour_max is not None:
+        return filter_lines_by_hour_range(
+            all_lines, cfg.hour_min, cfg.hour_max,
+            date_start=cfg.time_start, date_end=cfg.time_end,
+        )
+    if cfg.time_start or cfg.time_end:
+        return filter_lines_by_date_range(all_lines, cfg.time_start, cfg.time_end)
+    if time_window:
+        indexed, _ = filter_lines_by_time(all_lines, time_window)
+        return indexed
+    return [(i, l) for i, l in enumerate(all_lines)]
+
+
 def _regex_search(
     cfg: Config,
     prompt: str,
@@ -69,12 +84,7 @@ def _regex_search(
             continue
 
         all_lines = get_reader().read_lines(path)
-
-        # apply time window if present
-        if time_window:
-            indexed_lines, _ = filter_lines_by_time(all_lines, time_window)
-        else:
-            indexed_lines = [(i, l) for i, l in enumerate(all_lines)]
+        indexed_lines = _apply_time_filters(cfg, all_lines, time_window)
 
         for idx, clean in indexed_lines:
             if matcher.search(clean) or any(p.search(clean) for p in ERROR_PATTERNS.values()):
@@ -127,24 +137,22 @@ def _semantic_search(
             continue
 
         all_lines = get_reader().read_lines(path)
-
-        # apply time window if present
-        if time_window:
-            indexed_lines, _ = filter_lines_by_time(all_lines, time_window)
-        else:
-            indexed_lines = [(i, l) for i, l in enumerate(all_lines)]
+        indexed_lines = _apply_time_filters(cfg, all_lines, time_window)
 
         for idx, clean in indexed_lines:
             is_error = any(p.search(clean) for p in ERROR_PATTERNS.values())
             is_keyword = broad_matcher.search(clean)
             if is_error or is_keyword:
                 candidates.append((str(path), idx, clean, all_lines))
-            if len(candidates) >= EMBEDDING_PREFILTER_SIZE:
-                break
-        if len(candidates) >= EMBEDDING_PREFILTER_SIZE:
-            break
 
-    _log(f"Pre-filter kept {len(candidates)} / {EMBEDDING_PREFILTER_SIZE} candidates")
+    # evenly sample if we collected more than the prefilter limit
+    if len(candidates) > EMBEDDING_PREFILTER_SIZE:
+        total_collected = len(candidates)
+        step = total_collected / EMBEDDING_PREFILTER_SIZE
+        candidates = [candidates[int(i * step)] for i in range(EMBEDDING_PREFILTER_SIZE)]
+        _log(f"Evenly sampled {EMBEDDING_PREFILTER_SIZE} from {total_collected} candidates")
+    else:
+        _log(f"Pre-filter kept {len(candidates)} candidates")
 
     if not candidates:
         return _build_response(cfg, prompt, [], missing_files, search_mode="semantic",

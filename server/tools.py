@@ -16,6 +16,7 @@ from core.analyzer import LogAnalyzer
 from core.file_reader import get_reader
 from llm.summarizer import LLMSummarizer
 from search.searcher import search_logs
+from search.clusterer import semantic_analyze
 
 mcp = FastMCP("log-analyzer")
 
@@ -42,6 +43,22 @@ def analyze_logs(
         Optional[str],
         Field(description="Override the LLM model name for the AI summary."),
     ] = None,
+    time_start: Annotated[
+        Optional[str],
+        Field(description="ISO-8601 start of time range filter, e.g. '2025-01-15T08:00:00'. Only lines at or after this timestamp are included."),
+    ] = None,
+    time_end: Annotated[
+        Optional[str],
+        Field(description="ISO-8601 end of time range filter, e.g. '2025-01-15T12:00:00'. Only lines at or before this timestamp are included."),
+    ] = None,
+    hour_min: Annotated[
+        Optional[int],
+        Field(description="Minimum hour of day (0–23) for time-of-day filtering. Lines with timestamp hour < hour_min are excluded."),
+    ] = None,
+    hour_max: Annotated[
+        Optional[int],
+        Field(description="Maximum hour of day (0–23) for time-of-day filtering. Lines with timestamp hour > hour_max are excluded."),
+    ] = None,
 ) -> Dict:
     """
     Scan log files and produce a full statistical report of all errors, timeouts, exceptions, and critical events.
@@ -57,7 +74,8 @@ def analyze_logs(
 
     Returns: total_lines, error_lines, error_rate, pattern_counts, high_error_windows, sample_error_lines, and an AI-generated human_summary.
     """
-    cfg = build_config(log_files, bucket_minutes, high_error_threshold, max_samples, openai_model)
+    cfg = build_config(log_files, bucket_minutes, high_error_threshold, max_samples, openai_model,
+                       time_start=time_start, time_end=time_end, hour_min=hour_min, hour_max=hour_max)
     findings = LogAnalyzer(cfg).analyze()
 
     if cfg.llm_api_key:
@@ -94,6 +112,22 @@ def search_logs_tool(
         int,
         Field(description="Number of surrounding lines to include above and below each match for context."),
     ] = DEFAULT_CONTEXT_LINES,
+    hour_min: Annotated[
+        Optional[int],
+        Field(description="Minimum hour of day (0–23) for time-of-day filtering."),
+    ] = None,
+    hour_max: Annotated[
+        Optional[int],
+        Field(description="Maximum hour of day (0–23) for time-of-day filtering."),
+    ] = None,
+    time_start: Annotated[
+        Optional[str],
+        Field(description="ISO-8601 start of date range filter, e.g. '2025-01-15T00:00:00'."),
+    ] = None,
+    time_end: Annotated[
+        Optional[str],
+        Field(description="ISO-8601 end of date range filter, e.g. '2025-01-15T23:59:59'."),
+    ] = None,
     openai_model: Annotated[
         Optional[str],
         Field(description="Override the LLM model name for the AI explanation."),
@@ -121,6 +155,10 @@ def search_logs_tool(
         high_error_threshold=DEFAULT_HIGH_ERROR_THRESHOLD,
         max_samples=10000,
         openai_model=openai_model,
+        hour_min=hour_min,
+        hour_max=hour_max,
+        time_start=time_start,
+        time_end=time_end,
     )
     return search_logs(
         cfg,
@@ -154,3 +192,94 @@ def reset_file_cache(
         return {"reset": log_files, "status": "ok"}
     get_reader().reset()
     return {"reset": "all", "status": "ok"}
+
+
+@mcp.tool()
+def semantic_analysis(
+    prompt: Annotated[
+        str,
+        Field(description="Natural-language question about error patterns. "
+        "Examples: 'what is the most common cause of error in the last 12 hours', "
+        "'what types of failures are happening', 'cluster errors by root cause'."),
+    ],
+    log_files: Annotated[
+        Optional[List[str]],
+        Field(description="List of log file paths. If omitted, uses LOG_FILES from .env."),
+    ] = None,
+    max_clusters: Annotated[
+        int,
+        Field(description="Maximum number of error clusters to return."),
+    ] = 20,
+    hour_min: Annotated[
+        Optional[int],
+        Field(description="Minimum hour of day (0–23) for time-of-day filtering."),
+    ] = None,
+    hour_max: Annotated[
+        Optional[int],
+        Field(description="Maximum hour of day (0–23) for time-of-day filtering."),
+    ] = None,
+    time_start: Annotated[
+        Optional[str],
+        Field(description="ISO-8601 start of date range filter, e.g. '2025-01-15T00:00:00'."),
+    ] = None,
+    time_end: Annotated[
+        Optional[str],
+        Field(description="ISO-8601 end of date range filter, e.g. '2025-01-15T23:59:59'."),
+    ] = None,
+    openai_model: Annotated[
+        Optional[str],
+        Field(description="Override the LLM model name for cluster summaries."),
+    ] = None,
+) -> Dict:
+    """
+    Group error lines by semantic similarity into clusters, label each cluster with a representative keyword, and return cluster sizes and sample lines.
+
+    USE THIS TOOL WHEN the user asks:
+    - "What is the most common cause of error?"
+    - "What types of failures are happening?"
+    - "Cluster the errors by root cause"
+    - "What are the main error categories in the last N hours?"
+    - Any question about grouping, categorizing, or summarizing error patterns by meaning
+
+    DO NOT use this for specific error searches — use search_logs_tool instead.
+    DO NOT use this for raw statistics — use analyze_logs instead.
+
+    Requires embedding server (LLM_EMBEDDING_URL). Returns labeled clusters with sizes, percentages, keywords, and sample lines.
+    """
+    cfg = build_config(
+        log_files,
+        bucket_minutes=DEFAULT_BUCKET_MINUTES,
+        high_error_threshold=DEFAULT_HIGH_ERROR_THRESHOLD,
+        max_samples=DEFAULT_MAX_SAMPLES,
+        openai_model=openai_model,
+        hour_min=hour_min,
+        hour_max=hour_max,
+        time_start=time_start,
+        time_end=time_end,
+    )
+
+    result = semantic_analyze(cfg, prompt=prompt, max_clusters=max_clusters)
+
+    # add LLM summary if available and clusters exist
+    if cfg.llm_api_key and result.get("clusters") and "error" not in result:
+        try:
+            summary_input = [
+                f"{c['label']} ({c['size']} lines, {c['percentage']}%): {', '.join(c['keywords'])}"
+                for c in result["clusters"][:10]
+            ]
+            llm = LLMSummarizer(
+                api_key=cfg.llm_api_key,
+                model=cfg.openai_model,
+                base_url=cfg.llm_base_url,
+            )
+            result["human_summary"] = llm.summarize_search(
+                prompt,
+                summary_input,
+                total_matches=result.get("total_error_lines", 0),
+                total_lines=result.get("total_lines", 0),
+            )
+        except requests.RequestException as exc:
+            result["human_summary"] = f"Summary API call failed: {exc}"
+
+    return result
+

@@ -350,3 +350,95 @@ textarea { resize: vertical; min-height: 60px; }
 /* ── hidden helper ─────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }
 
+/* ── modal ─────────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 32px;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 16px 48px rgba(0,0,0,.5);
+}
+.modal h2 {
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+.modal input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: var(--surface2);
+  border-radius: 3px;
+  outline: none;
+}
+.modal input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--surface);
+  box-shadow: 0 2px 6px rgba(0,0,0,.3);
+}
+.modal input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--surface);
+}
+
+/* ── word cloud ───────────────────────────────────────────────────────────── */
+.word-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 18px;
+  padding: 30px 20px;
+  min-height: 120px;
+}
+.word-cloud .cloud-word {
+  cursor: pointer;
+  font-weight: 700;
+  transition: all .2s;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  user-select: none;
+  position: relative;
+}
+.word-cloud .cloud-word:hover {
+  background: rgba(108,140,255,.15);
+  transform: scale(1.12);
+}
+.word-cloud .cloud-word.selected {
+  background: rgba(108,140,255,.2);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.word-cloud .cloud-word .cloud-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 10px;
+  line-height: 1.4;
+}
+

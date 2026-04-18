@@ -103,8 +103,9 @@
     <!-- prompt bar -->
     <div class="prompt-bar">
       <textarea id="promptInput" rows="1"
-        placeholder="Ask anything… e.g. 'show me database timeout errors' or 'give me a health check'"></textarea>
-      <button class="btn btn-primary" onclick="submitQuery()">Ask</button>
+        placeholder="Ask anything… e.g. 'show me database timeout errors' or 'what is the most common cause of error in the last 12 hours'"></textarea>
+      <button class="btn btn-primary" onclick="submitQuery()">🔍 Search</button>
+      <button class="btn btn-secondary" onclick="runSemanticAnalysis()">☁️ Error Clusters</button>
       <button class="btn btn-secondary" onclick="runAnalyze()">📊 Full Analysis</button>
     </div>
 
@@ -156,8 +157,91 @@
       </div>
 
     </div>
+
+    <!-- ── WORD CLOUD SECTION ─────────────────────────────────────────── -->
+    <div id="wordCloudSection" style="display:none;">
+
+      <div class="card">
+        <h2>☁️ Error Clusters — Word Cloud
+          <span id="cloudInfo" style="font-weight:400;color:var(--text2);font-size:13px;"></span>
+        </h2>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:16px;">
+          Each word represents a cluster of semantically similar errors. Size = frequency. Click a word to see details below.
+        </p>
+        <div id="wordCloud" class="word-cloud"></div>
+      </div>
+
+      <!-- AI summary for clusters -->
+      <div class="card" id="cloudSummaryCard" style="display:none;">
+        <h2>🤖 AI Summary</h2>
+        <div class="summary-box" id="cloudSummaryBox"></div>
+      </div>
+
+      <!-- detail panel (shown on click/hover) -->
+      <div class="card" id="clusterDetail" style="display:none;">
+        <h2>
+          <span id="detailLabel">—</span>
+          <span id="detailMeta" style="font-weight:400;color:var(--text2);font-size:13px;"></span>
+        </h2>
+        <h3>Keywords</h3>
+        <div id="detailKeywords" class="tag-list" style="margin-bottom:12px;"></div>
+        <h3>Sample Error Lines</h3>
+        <div class="match-list" id="detailLines"></div>
+      </div>
+
+    </div>
+
   </div>
 
+</div>
+
+<!-- time range modal -->
+<div class="modal-overlay" id="timeWindowModal" style="display:none;">
+  <div class="modal">
+    <h2>⏱️ Time-of-Day Filter</h2>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:16px;">
+      Restrict the analysis to log lines whose timestamp falls within an hour range.
+      Optionally limit to a specific date range if your logs span multiple days.
+    </p>
+
+    <!-- optional date range -->
+    <details id="twDateDetails" style="margin-bottom:16px;">
+      <summary style="cursor:pointer;font-size:13px;color:var(--accent);font-weight:600;">📅 Filter by date (optional)</summary>
+      <div class="form-row" style="margin-top:10px;">
+        <div>
+          <label>Start date</label>
+          <input type="date" id="twDateStart" value="">
+        </div>
+        <div>
+          <label>End date</label>
+          <input type="date" id="twDateEnd" value="">
+        </div>
+      </div>
+      <p style="font-size:11px;color:var(--text2);margin-top:4px;">
+        Leave empty to include all dates. If only start is set, end defaults to today.
+      </p>
+    </details>
+
+    <!-- hour range sliders -->
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
+      <label style="min-width:70px;font-weight:600;" id="twMinLabel">00:00</label>
+      <input type="range" id="twHourMin" min="0" max="23" value="0" style="flex:1;"
+             oninput="updateHourLabels()">
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+      <label style="min-width:70px;font-weight:600;" id="twMaxLabel">23:00</label>
+      <input type="range" id="twHourMax" min="0" max="23" value="23" style="flex:1;"
+             oninput="updateHourLabels()">
+    </div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:16px;" id="twRangeHint">
+      Showing lines from <b>00:00</b> to <b>23:59</b>
+    </p>
+    <div class="btn-group" style="justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="cancelTimeWindow()">Cancel</button>
+      <button class="btn btn-secondary" onclick="confirmTimeWindow(false)">🔍 All Logs (no filter)</button>
+      <button class="btn btn-primary" id="twApplyBtn" onclick="confirmTimeWindow(true)">✅ Apply &amp; Run</button>
+    </div>
+  </div>
 </div>
 
 <!-- toast -->

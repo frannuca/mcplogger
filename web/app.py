@@ -206,6 +206,10 @@ def api_analyze():
         "bucket_minutes": body.get("bucket_minutes", 5),
         "high_error_threshold": body.get("high_error_threshold", 0.20),
         "max_samples": body.get("max_samples", 50),
+        "hour_min": body.get("hour_min"),
+        "hour_max": body.get("hour_max"),
+        "time_start": body.get("time_start"),
+        "time_end": body.get("time_end"),
     })
     if result is None:
         return jsonify({"error": "No response"}), 500
@@ -226,6 +230,33 @@ def api_search():
         "log_files": log_files,
         "max_matches": body.get("max_matches", 50),
         "context_lines": body.get("context_lines", 2),
+        "hour_min": body.get("hour_min"),
+        "hour_max": body.get("hour_max"),
+        "time_start": body.get("time_start"),
+        "time_end": body.get("time_end"),
+    })
+    if result is None:
+        return jsonify({"error": "No response"}), 500
+    if "error" in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+
+@app.route("/api/semantic_analyze", methods=["POST"])
+def api_semantic_analyze():
+    body = request.json or {}
+    prompt = body.get("prompt", "")
+    if not prompt.strip():
+        return jsonify({"error": "prompt is required"}), 400
+    log_files = session.config.get("log_files", [])
+    result = session.call_tool("semantic_analysis", {
+        "prompt": prompt,
+        "log_files": log_files,
+        "max_clusters": body.get("max_clusters", 20),
+        "hour_min": body.get("hour_min"),
+        "hour_max": body.get("hour_max"),
+        "time_start": body.get("time_start"),
+        "time_end": body.get("time_end"),
     })
     if result is None:
         return jsonify({"error": "No response"}), 500

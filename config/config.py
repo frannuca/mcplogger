@@ -1,5 +1,6 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -31,11 +32,27 @@ class Config:
     # Embedding — set LLM_EMBEDDING_URL to enable semantic search
     llm_embedding_url: Optional[str] = None     # e.g. http://localhost:8080/v1
     llm_embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    # Optional time range filter — only lines within [time_start, time_end] are processed
+    time_start: Optional[datetime] = None
+    time_end: Optional[datetime] = None
+    # Optional hour-of-day range filter (0–23). Lines outside [hour_min, hour_max] are excluded.
+    hour_min: Optional[int] = None
+    hour_max: Optional[int] = None
 
 
 def parse_paths_from_env() -> List[Path]:
     raw = os.getenv("LOG_FILES", "")
     return [Path(p.strip()) for p in raw.split(",") if p.strip()]
+
+
+def _parse_dt(val: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO-8601 datetime string, return None on failure."""
+    if not val:
+        return None
+    try:
+        return datetime.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
 
 
 def build_config(
@@ -44,6 +61,10 @@ def build_config(
     high_error_threshold: float,
     max_samples: int,
     openai_model: Optional[str],
+    time_start: Optional[str] = None,
+    time_end: Optional[str] = None,
+    hour_min: Optional[int] = None,
+    hour_max: Optional[int] = None,
 ) -> Config:
     paths = [Path(p) for p in log_files] if log_files else parse_paths_from_env()
     if not paths:
@@ -65,4 +86,8 @@ def build_config(
         # If LLM_EMBEDDING_URL is set, semantic (vector) search is used instead of regex
         llm_embedding_url=os.getenv("LLM_EMBEDDING_URL") or None,
         llm_embedding_model=os.getenv("LLM_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
+        time_start=_parse_dt(time_start),
+        time_end=_parse_dt(time_end),
+        hour_min=hour_min,
+        hour_max=hour_max,
     )

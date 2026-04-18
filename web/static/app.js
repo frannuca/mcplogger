@@ -1,7 +1,13 @@
 // ── state ─────────────────────────────────────────────────────────────────────
 let currentMode = "local";
-let logFiles = [];
+let logFiles = ["/Users/fran/mcps/mcplogger/test_app.log"];
 let pieChart = null;
+let clusterData = null;  // holds semantic_analysis response for word cloud
+let activeHourMin = null;  // null means no hour filter active
+let activeHourMax = null;
+let activeDateStart = null;  // null means no date filter; ISO string e.g. "2026-04-18"
+let activeDateEnd = null;
+let pendingAction = null;    // "semantic" or "analyze" — which action the modal was opened for
 
 // ── tab switching ────────────────────────────────────────────────────────────
 document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -111,14 +117,36 @@ function setRunning(running) {
   document.getElementById("tabAnalysis").disabled = !running;
 }
 
+// ── attach active time/date filters to a request body ────────────────────────
+function applyTimeFilters(body) {
+  if (activeHourMin !== null) {
+    body.hour_min = activeHourMin;
+    body.hour_max = activeHourMax;
+  }
+  if (activeDateStart) {
+    body.time_start = activeDateStart + "T00:00:00";
+  }
+  if (activeDateEnd) {
+    body.time_end = activeDateEnd + "T23:59:59";
+  }
+  return body;
+}
+
 // ── analysis: search ─────────────────────────────────────────────────────────
 async function submitQuery() {
   const prompt = document.getElementById("promptInput").value.trim();
   if (!prompt) { toast("Enter a question", "error"); return; }
+  openTimeModal("search");
+}
+
+async function _doSearch() {
+  const prompt = document.getElementById("promptInput").value.trim();
   showSpinner(true);
   clearResults();
+  hideWordCloud();
 
-  const data = await api("/api/search", { prompt, max_matches: 50, context_lines: 2 });
+  const searchBody = applyTimeFilters({ prompt, max_matches: 50, context_lines: 2 });
+  const data = await api("/api/search", searchBody);
   showSpinner(false);
 
   if (data.error) { toast(data.error, "error"); return; }
@@ -138,7 +166,7 @@ async function submitQuery() {
   renderMatches(data.matches || []);
 
   // For search results, we don't get pattern_counts — do a quick analyze for the chart
-  const analysis = await api("/api/analyze", {});
+  const analysis = await api("/api/analyze", applyTimeFilters({}));
   if (analysis && analysis.pattern_counts) {
     renderPieChart(analysis.pattern_counts);
     // update stat boxes from analysis
@@ -151,10 +179,31 @@ async function submitQuery() {
 
 // ── analysis: full analyze ───────────────────────────────────────────────────
 async function runAnalyze() {
+  openTimeModal("analyze");
+}
+
+// ── open shared time-filter modal ────────────────────────────────────────────
+function openTimeModal(action) {
+  pendingAction = action;
+  document.getElementById("twHourMin").value = 0;
+  document.getElementById("twHourMax").value = 23;
+  document.getElementById("twDateStart").value = "";
+  document.getElementById("twDateEnd").value = "";
+  document.getElementById("twDateDetails").removeAttribute("open");
+  updateHourLabels();
+  // set contextual button label
+  const labels = { search: "🔍 Apply & Search", analyze: "📊 Apply & Analyze", semantic: "☁️ Apply & Cluster" };
+  document.getElementById("twApplyBtn").innerHTML = labels[action] || "✅ Apply & Run";
+  document.getElementById("timeWindowModal").style.display = "flex";
+}
+
+async function _doAnalyze() {
   showSpinner(true);
   clearResults();
+  hideWordCloud();
 
-  const data = await api("/api/analyze", { max_samples: 50 });
+  const analyzeBody = applyTimeFilters({ max_samples: 50 });
+  const data = await api("/api/analyze", analyzeBody);
   showSpinner(false);
 
   if (data.error) { toast(data.error, "error"); return; }
@@ -307,8 +356,186 @@ document.getElementById("promptInput").addEventListener("keydown", e => {
   }
 });
 
+// ── semantic analysis / word cloud ───────────────────────────────────────────
+
+const CLOUD_COLORS = [
+  "#6c8cff", "#ff5c5c", "#ffa94d", "#3dd68c", "#c084fc",
+  "#f472b6", "#38bdf8", "#facc15", "#a3e635", "#e879f9",
+  "#fb923c", "#67e8f9", "#d946ef", "#4ade80", "#f87171",
+  "#a78bfa", "#fbbf24", "#34d399", "#f43f5e", "#818cf8",
+];
+
+async function runSemanticAnalysis() {
+  openTimeModal("semantic");
+}
+
+function updateHourLabels() {
+  const min = parseInt(document.getElementById("twHourMin").value);
+  const max = parseInt(document.getElementById("twHourMax").value);
+  document.getElementById("twMinLabel").textContent = String(min).padStart(2, "0") + ":00";
+  document.getElementById("twMaxLabel").textContent = String(max).padStart(2, "0") + ":00";
+  const wraps = min > max;
+  const hint = wraps
+    ? `Showing lines from <b>${String(min).padStart(2,"0")}:00</b> to <b>23:59</b> and <b>00:00</b> to <b>${String(max).padStart(2,"0")}:59</b>`
+    : `Showing lines from <b>${String(min).padStart(2,"0")}:00</b> to <b>${String(max).padStart(2,"0")}:59</b>`;
+  document.getElementById("twRangeHint").innerHTML = hint;
+}
+
+function cancelTimeWindow() {
+  document.getElementById("timeWindowModal").style.display = "none";
+}
+
+async function confirmTimeWindow(useFilter) {
+  document.getElementById("timeWindowModal").style.display = "none";
+
+  if (useFilter) {
+    activeHourMin = parseInt(document.getElementById("twHourMin").value);
+    activeHourMax = parseInt(document.getElementById("twHourMax").value);
+    activeDateStart = document.getElementById("twDateStart").value || null;
+    activeDateEnd = document.getElementById("twDateEnd").value || null;
+    if (activeDateStart && !activeDateEnd) {
+      activeDateEnd = new Date().toISOString().slice(0, 10);
+    }
+  } else {
+    activeHourMin = null;
+    activeHourMax = null;
+    activeDateStart = null;
+    activeDateEnd = null;
+  }
+
+  if (pendingAction === "analyze") {
+    await _doAnalyze();
+  } else if (pendingAction === "search") {
+    await _doSearch();
+  } else {
+    await _doSemanticAnalysis();
+  }
+}
+
+async function _doSemanticAnalysis() {
+  let prompt = document.getElementById("promptInput").value.trim() || "what are the main error categories";
+
+  showSpinner(true);
+  hideSearchResults();
+  hideWordCloud();
+
+  const body = applyTimeFilters({ prompt, max_clusters: 20 });
+
+  const data = await api("/api/semantic_analyze", body);
+  showSpinner(false);
+
+  if (data.error) { toast(data.error, "error"); return; }
+  if (!data.clusters || data.clusters.length === 0) {
+    toast("No error clusters found. Make sure the log has error lines.", "error");
+    return;
+  }
+
+  clusterData = data;
+  renderWordCloud(data);
+}
+
+function renderWordCloud(data) {
+  const section = document.getElementById("wordCloudSection");
+  section.style.display = "block";
+
+  // info
+  const tw = data.time_window ? ` (window: ${data.time_window})` : "";
+  document.getElementById("cloudInfo").textContent =
+    `— ${data.total_error_lines} errors in ${data.total_lines.toLocaleString()} lines${tw}`;
+
+  // build cloud
+  const container = document.getElementById("wordCloud");
+  container.innerHTML = "";
+
+  const maxSize = Math.max(...data.clusters.map(c => c.size));
+  const minFont = 14;
+  const maxFont = 64;
+
+  data.clusters.forEach((cluster, i) => {
+    const ratio = cluster.size / maxSize;
+    const fontSize = Math.round(minFont + ratio * (maxFont - minFont));
+    const color = CLOUD_COLORS[i % CLOUD_COLORS.length];
+    const opacity = 0.5 + ratio * 0.5;
+
+    const span = document.createElement("span");
+    span.className = "cloud-word";
+    span.style.fontSize = fontSize + "px";
+    span.style.color = color;
+    span.style.opacity = opacity;
+    span.textContent = cluster.label;
+    span.title = `${cluster.size} errors (${cluster.percentage}%) — click for details`;
+    span.dataset.idx = i;
+
+    // badge with count
+    const badge = document.createElement("span");
+    badge.className = "cloud-badge";
+    badge.textContent = cluster.size;
+    span.appendChild(badge);
+
+    span.addEventListener("click", () => showClusterDetail(i));
+    container.appendChild(span);
+  });
+
+  // show AI summary
+  if (data.human_summary) {
+    document.getElementById("cloudSummaryCard").style.display = "block";
+    document.getElementById("cloudSummaryBox").textContent = data.human_summary;
+  } else {
+    document.getElementById("cloudSummaryCard").style.display = "none";
+  }
+
+  // auto-select the largest cluster
+  showClusterDetail(0);
+}
+
+function showClusterDetail(idx) {
+  if (!clusterData || !clusterData.clusters[idx]) return;
+  const cluster = clusterData.clusters[idx];
+
+  // highlight selected word
+  document.querySelectorAll(".cloud-word").forEach(el => {
+    el.classList.toggle("selected", parseInt(el.dataset.idx) === idx);
+  });
+
+  // show detail panel
+  const panel = document.getElementById("clusterDetail");
+  panel.style.display = "block";
+
+  document.getElementById("detailLabel").textContent = cluster.label;
+  document.getElementById("detailMeta").textContent =
+    `— ${cluster.size} lines (${cluster.percentage}%) — cohesion: ${cluster.centroid_similarity}`;
+
+  // keywords as tags
+  const kwContainer = document.getElementById("detailKeywords");
+  kwContainer.innerHTML = cluster.keywords.map(k =>
+    `<span class="tag">🏷️ ${escHtml(k)}</span>`
+  ).join("");
+
+  // sample lines
+  const lineContainer = document.getElementById("detailLines");
+  if (cluster.sample_lines.length === 0) {
+    lineContainer.innerHTML = '<p style="color:var(--text2);">No sample lines.</p>';
+  } else {
+    lineContainer.innerHTML = cluster.sample_lines.map(line =>
+      `<div class="match-item"><pre>${escHtml(line)}</pre></div>`
+    ).join("");
+  }
+}
+
+function hideWordCloud() {
+  document.getElementById("wordCloudSection").style.display = "none";
+  document.getElementById("clusterDetail").style.display = "none";
+  document.getElementById("cloudSummaryCard").style.display = "none";
+  clusterData = null;
+}
+
+function hideSearchResults() {
+  showResultsGrid(false);
+}
+
 // ── init: check server status ────────────────────────────────────────────────
 (async function init() {
+  renderLogTags();
   try {
     const res = await fetch("/api/status");
     const data = await res.json();
