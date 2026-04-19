@@ -9,6 +9,8 @@ from config.constants import (
     DEFAULT_CONTEXT_LINES,
     DEFAULT_MAX_MATCHES,
     EMBEDDING_PREFILTER_SIZE,
+    EMBEDDING_SIMILARITY_THRESHOLD,
+    TOP_RANKED_PREFILTER_SIZE,
     FALLBACK_SEARCH_PATTERN,
     MAX_PROMPT_TERMS,
     MIN_TERM_LENGTH,
@@ -41,11 +43,12 @@ def search_logs(
     prompt: str,
     max_matches: int = DEFAULT_MAX_MATCHES,
     context_lines: int = DEFAULT_CONTEXT_LINES,
+    prompt_threshold: float = EMBEDDING_SIMILARITY_THRESHOLD,
 ) -> Dict:
     """Dispatch to semantic or regex search depending on config."""
     if cfg.llm_embedding_url:
         _log(f"Using semantic (embedding) search → {cfg.llm_embedding_url}")
-        return _semantic_search(cfg, prompt, max_matches, context_lines)
+        return _semantic_search(cfg, prompt, max_matches, context_lines, prompt_threshold)
     return _regex_search(cfg, prompt, max_matches, context_lines)
 
 
@@ -108,6 +111,7 @@ def _semantic_search(
     prompt: str,
     max_matches: int,
     context_lines: int,
+    prompt_threshold: float = EMBEDDING_SIMILARITY_THRESHOLD,
 ) -> Dict:
     """
     Two-phase approach:
@@ -161,11 +165,12 @@ def _semantic_search(
     # embed candidates + rank by cosine similarity
     candidate_texts = [c[2] for c in candidates]
     try:
-        ranked = embedder.rank_lines(prompt, candidate_texts, top_n=max_matches)
+        ranked = embedder.rank_lines(prompt, candidate_texts, top_n=max_matches, threshold=prompt_threshold)
     except requests.RequestException as exc:
         _log(f"Embedding failed, falling back to regex: {exc}")
         return _regex_search(cfg, prompt, max_matches, context_lines)
 
+    ranked = ranked[:TOP_RANKED_PREFILTER_SIZE]
     matches: List[Dict] = []
     for cand_idx, score in ranked:
         path_str, line_idx, clean, all_lines = candidates[cand_idx]

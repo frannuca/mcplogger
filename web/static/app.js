@@ -129,6 +129,11 @@ function applyTimeFilters(body) {
   if (activeDateEnd) {
     body.time_end = activeDateEnd + "T23:59:59";
   }
+  // global prompt similarity threshold from config
+  const threshold = parseInt(document.getElementById("cfgThreshold").value) / 100;
+  if (threshold > 0) {
+    body.prompt_threshold = threshold;
+  }
   return body;
 }
 
@@ -202,7 +207,9 @@ async function _doAnalyze() {
   clearResults();
   hideWordCloud();
 
+  const prompt = document.getElementById("promptInput").value.trim();
   const analyzeBody = applyTimeFilters({ max_samples: 50 });
+  if (prompt) analyzeBody.prompt = prompt;
   const data = await api("/api/analyze", analyzeBody);
   showSpinner(false);
 

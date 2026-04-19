@@ -1,3 +1,4 @@
+import sys
 from typing import Annotated, Dict, List, Optional
 
 import requests
@@ -6,6 +7,7 @@ from pydantic import Field
 
 from config import build_config
 from config.constants import (
+    CLUSTER_PROMPT_THRESHOLD,
     DEFAULT_BUCKET_MINUTES,
     DEFAULT_CONTEXT_LINES,
     DEFAULT_HIGH_ERROR_THRESHOLD,
@@ -19,6 +21,10 @@ from search.searcher import search_logs
 from search.clusterer import semantic_analyze
 
 mcp = FastMCP("log-analyzer")
+
+
+def _log_tool(msg: str) -> None:
+    print(f"[tools] {msg}", file=sys.stderr, flush=True)
 
 
 @mcp.tool()
@@ -59,6 +65,14 @@ def analyze_logs(
         Optional[int],
         Field(description="Maximum hour of day (0–23) for time-of-day filtering. Lines with timestamp hour > hour_max are excluded."),
     ] = None,
+    prompt: Annotated[
+        Optional[str],
+        Field(description="Optional natural-language prompt. When set, error lines are filtered by cosine similarity to this prompt using the embedding server."),
+    ] = None,
+    prompt_threshold: Annotated[
+        Optional[float],
+        Field(description="Cosine similarity threshold (0.0–1.0) for filtering error lines by prompt. Default 0.3."),
+    ] = None,
 ) -> Dict:
     """
     Scan log files and produce a full statistical report of all errors, timeouts, exceptions, and critical events.
@@ -77,6 +91,38 @@ def analyze_logs(
     cfg = build_config(log_files, bucket_minutes, high_error_threshold, max_samples, openai_model,
                        time_start=time_start, time_end=time_end, hour_min=hour_min, hour_max=hour_max)
     findings = LogAnalyzer(cfg).analyze()
+
+    # If a prompt is provided and embedding server is configured, filter error lines by cosine similarity
+    effective_prompt = (prompt or "").strip()
+    if effective_prompt and cfg.llm_embedding_url:
+        threshold = prompt_threshold if prompt_threshold is not None else CLUSTER_PROMPT_THRESHOLD
+        if threshold > 0:
+            try:
+                from search.embedder import LogEmbedder
+                embedder = LogEmbedder(
+                    base_url=cfg.llm_embedding_url,
+                    model=cfg.llm_embedding_model,
+                    api_key=cfg.llm_api_key or "local",
+                )
+                all_errors = findings.get("sample_error_lines") or []
+                if all_errors:
+                    # Evenly sample to keep embedding fast (max 2000 lines)
+                    MAX_EMBED = 2000
+                    if len(all_errors) > MAX_EMBED:
+                        step = len(all_errors) / MAX_EMBED
+                        sampled = [all_errors[int(i * step)] for i in range(MAX_EMBED)]
+                    else:
+                        sampled = all_errors
+                    ranked = embedder.rank_lines(effective_prompt, sampled,
+                                                 top_n=len(sampled), threshold=threshold)
+                    filtered = [sampled[idx] for idx, _score in ranked]
+                    _log_tool(f"Prompt filter kept {len(filtered)} / {len(sampled)} error lines "
+                              f"(threshold={threshold}, prompt='{effective_prompt[:60]}')")
+                    findings["sample_error_lines"] = filtered
+                    findings["prompt_filtered"] = True
+                    findings["prompt_threshold"] = threshold
+            except Exception as exc:
+                _log_tool(f"Prompt filter failed (continuing unfiltered): {exc}")
 
     if cfg.llm_api_key:
         try:
@@ -128,6 +174,11 @@ def search_logs_tool(
         Optional[str],
         Field(description="ISO-8601 end of date range filter, e.g. '2025-01-15T23:59:59'."),
     ] = None,
+    prompt_threshold: Annotated[
+        Optional[float],
+        Field(description="Cosine similarity threshold (0.0–1.0) for filtering log lines by the prompt. "
+              "Higher = stricter filter. 0 = no filtering. Default 0.3."),
+    ] = None,
     openai_model: Annotated[
         Optional[str],
         Field(description="Override the LLM model name for the AI explanation."),
@@ -165,6 +216,7 @@ def search_logs_tool(
         prompt=prompt,
         max_matches=max(max_matches, 1),
         context_lines=max(context_lines, 0),
+        prompt_threshold=prompt_threshold if prompt_threshold is not None else CLUSTER_PROMPT_THRESHOLD,
     )
 
 
@@ -280,6 +332,11 @@ def semantic_analysis(
         int,
         Field(description="Maximum number of error clusters to return."),
     ] = 20,
+    prompt_threshold: Annotated[
+        Optional[float],
+        Field(description="Cosine similarity threshold (0.0–1.0) for filtering error lines by the prompt before clustering. "
+              "Higher = stricter filter. 0 = no filtering. Default 0.3."),
+    ] = None,
     hour_min: Annotated[
         Optional[int],
         Field(description="Minimum hour of day (0–23) for time-of-day filtering."),
@@ -328,7 +385,8 @@ def semantic_analysis(
         time_end=time_end,
     )
 
-    result = semantic_analyze(cfg, prompt=prompt, max_clusters=max_clusters)
+    result = semantic_analyze(cfg, prompt=prompt, max_clusters=max_clusters,
+                             prompt_threshold=prompt_threshold if prompt_threshold is not None else CLUSTER_PROMPT_THRESHOLD)
 
     # add LLM summary if available and clusters exist
     if cfg.llm_api_key and result.get("clusters") and "error" not in result:

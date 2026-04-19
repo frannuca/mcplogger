@@ -59,8 +59,14 @@ DEFAULT_EMBEDDING_MODEL: str = "text-embedding"
 EMBEDDING_BATCH_SIZE: int = 128
 
 # Max candidate lines fed into the embedder (regex pre-filters the rest)
-EMBEDDING_PREFILTER_SIZE: int = 500
+EMBEDDING_PREFILTER_SIZE: int = 50000
+
+TOP_RANKED_PREFILTER_SIZE: int = 1500
 
 # Minimum cosine similarity score to include a line in results
 EMBEDDING_SIMILARITY_THRESHOLD: float = 0.25
+
+# Minimum cosine similarity to the user prompt for a line to enter clustering
+# (0.0 = no filtering, all error lines are clustered regardless of prompt)
+CLUSTER_PROMPT_THRESHOLD: float = 0.3
 

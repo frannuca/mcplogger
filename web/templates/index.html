@@ -69,6 +69,23 @@
         <label>Model</label>
         <input type="text" id="remoteModel" value="gpt-4o-mini" placeholder="gpt-4o-mini">
       </div>
+
+      <!-- prompt similarity threshold (global) -->
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+        <label style="font-size:13px;font-weight:600;">🎯 Prompt Similarity Threshold:
+          <span id="cfgThresholdLabel" style="color:var(--accent);">0.30</span>
+        </label>
+        <p style="font-size:11px;color:var(--text2);margin:4px 0 8px;">
+          When you type a specific prompt, only log lines whose meaning is at least this similar to your prompt are included.
+          0 = no filtering. Higher = stricter match. Applies to search, analysis, and clustering.
+        </p>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:11px;color:var(--text2);">0</span>
+          <input type="range" id="cfgThreshold" min="0" max="80" value="30" style="flex:1;"
+                 oninput="document.getElementById('cfgThresholdLabel').textContent = (this.value / 100).toFixed(2)">
+          <span style="font-size:11px;color:var(--text2);">0.80</span>
+        </div>
+      </div>
     </div>
 
     <!-- log files -->
@@ -253,6 +270,8 @@
     <p style="font-size:12px;color:var(--text2);margin-bottom:16px;" id="twRangeHint">
       Showing lines from <b>00:00</b> to <b>23:59</b>
     </p>
+
+
     <div class="btn-group" style="justify-content:flex-end;">
       <button class="btn btn-secondary" onclick="cancelTimeWindow()">Cancel</button>
       <button class="btn btn-secondary" onclick="confirmTimeWindow(false)">🔍 All Logs (no filter)</button>

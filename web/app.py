@@ -210,6 +210,8 @@ def api_analyze():
         "hour_max": body.get("hour_max"),
         "time_start": body.get("time_start"),
         "time_end": body.get("time_end"),
+        "prompt": body.get("prompt"),
+        "prompt_threshold": body.get("prompt_threshold"),
     })
     if result is None:
         return jsonify({"error": "No response"}), 500
@@ -234,6 +236,7 @@ def api_search():
         "hour_max": body.get("hour_max"),
         "time_start": body.get("time_start"),
         "time_end": body.get("time_end"),
+        "prompt_threshold": body.get("prompt_threshold"),
     })
     if result is None:
         return jsonify({"error": "No response"}), 500
@@ -253,6 +256,7 @@ def api_semantic_analyze():
         "prompt": prompt,
         "log_files": log_files,
         "max_clusters": body.get("max_clusters", 20),
+        "prompt_threshold": body.get("prompt_threshold"),
         "hour_min": body.get("hour_min"),
         "hour_max": body.get("hour_max"),
         "time_start": body.get("time_start"),

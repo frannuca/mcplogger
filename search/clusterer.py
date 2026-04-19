@@ -20,7 +20,7 @@ from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
 from config import Config
-from config.constants import EMBEDDING_PREFILTER_SIZE
+from config.constants import CLUSTER_PROMPT_THRESHOLD, EMBEDDING_PREFILTER_SIZE
 from core.file_reader import get_reader
 from core.patterns import ERROR_PATTERNS
 from search.embedder import LogEmbedder
@@ -58,14 +58,21 @@ def semantic_analyze(
     cfg: Config,
     prompt: str,
     max_clusters: int = 20,
+    prompt_threshold: float = CLUSTER_PROMPT_THRESHOLD,
 ) -> Dict:
     """
     Cluster error lines semantically and return labeled groups.
+
+    If *prompt* contains meaningful keywords (not just generic questions),
+    error lines are first filtered by cosine similarity to the prompt —
+    only lines above *prompt_threshold* enter clustering.
+    If prompt is empty or generic, all error lines are clustered.
 
     Returns:
         {
             "query": str,
             "time_window": str | None,
+            "prompt_threshold": float,
             "total_error_lines": int,
             "total_lines": int,
             "clusters": [
@@ -139,11 +146,50 @@ def semantic_analyze(
     )
 
     texts = [e[2] for e in error_lines]
+
+    # If prompt has meaningful keywords, embed prompt + lines together
+    # so we can filter lines by similarity to the prompt.
+    use_prompt_filter = _is_specific_prompt(prompt) and prompt_threshold > 0
+    if use_prompt_filter:
+        _log(f"Prompt filter active (threshold={prompt_threshold}): '{prompt[:80]}'")
+        all_texts = [strip_time_phrase(prompt)] + texts
+    else:
+        _log("Generic prompt — clustering all error lines without prompt filter")
+        all_texts = texts
+
     try:
-        vectors = embedder._embed_batch(texts)
+        all_vectors = embedder._embed_batch(all_texts)
     except Exception as exc:
         _log(f"Embedding failed: {exc}")
         return {"error": f"Embedding API call failed: {exc}"}
+
+    # ── prompt-based filtering ────────────────────────────────────────────
+    if use_prompt_filter:
+        prompt_vec = all_vectors[0]
+        vectors = all_vectors[1:]
+        # keep only lines whose similarity to the prompt >= threshold
+        kept_indices = []
+        for i, vec in enumerate(vectors):
+            sim = _cosine(prompt_vec, vec)
+            if sim >= prompt_threshold:
+                kept_indices.append(i)
+
+        _log(f"Prompt filter kept {len(kept_indices)} / {len(error_lines)} lines (threshold={prompt_threshold})")
+
+        if not kept_indices:
+            return {
+                "query": prompt,
+                "time_window": str(time_window) if time_window else None,
+                "prompt_threshold": prompt_threshold,
+                "total_error_lines": len(error_lines),
+                "total_lines": total_lines,
+                "clusters": [],
+            }
+
+        error_lines = [error_lines[i] for i in kept_indices]
+        vectors = [vectors[i] for i in kept_indices]
+    else:
+        vectors = all_vectors
 
     # ── cluster ───────────────────────────────────────────────────────────
     clusters = _greedy_cluster(vectors, CLUSTER_THRESHOLD)
@@ -184,10 +230,46 @@ def semantic_analyze(
     return {
         "query": prompt,
         "time_window": str(time_window) if time_window else None,
+        "prompt_threshold": prompt_threshold if use_prompt_filter else None,
         "total_error_lines": len(error_lines),
         "total_lines": total_lines,
         "clusters": result_clusters,
     }
+
+
+# ── prompt classification ─────────────────────────────────────────────────────
+
+# Generic prompts that should NOT trigger prompt-based filtering
+_GENERIC_PROMPTS = re.compile(
+    r"^(what|show|list|give|tell|find|get|display|cluster|group|categorize|summarize|analyze)\b"
+    r".*\b(error|errors|failure|failures|issue|issues|problem|problems|"
+    r"categories|clusters|types|patterns|causes|cause|root)\b.*$",
+    re.IGNORECASE,
+)
+
+
+def _is_specific_prompt(prompt: str) -> bool:
+    """
+    Return True if the prompt contains specific technical keywords worth
+    filtering on, False if it's a generic clustering request.
+
+    Generic examples (returns False):
+      - "what are the main error categories"
+      - "cluster errors by root cause"
+      - "show me all failure types"
+
+    Specific examples (returns True):
+      - "database timeout"
+      - "connection pool exhausted"
+      - "JWT token expired"
+      - "disk full errors"
+    """
+    clean = strip_time_phrase(prompt).strip()
+    if not clean or len(clean) < 5:
+        return False
+    if _GENERIC_PROMPTS.match(clean):
+        return False
+    return True
 
 
 # ── clustering ────────────────────────────────────────────────────────────────

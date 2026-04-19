@@ -32,14 +32,23 @@ class LLMSummarizer:
     # ── public methods ────────────────────────────────────────────────────────
 
     def summarize_findings(self, findings: Dict) -> str:
-        # Build a compact subset — the LLM doesn't need every sample line
+        # Build a compact subset for the LLM — full data stays in the response for the UI
+        all_samples = findings.get("sample_error_lines") or []
+        # Evenly spread up to 30 lines for the LLM (keeps prompt within context window)
+        LLM_MAX_SAMPLES = 30
+        if len(all_samples) <= LLM_MAX_SAMPLES:
+            llm_samples = all_samples
+        else:
+            step = len(all_samples) / LLM_MAX_SAMPLES
+            llm_samples = [all_samples[int(i * step)] for i in range(LLM_MAX_SAMPLES)]
+
         compact = {
             "total_lines": findings.get("total_lines"),
             "error_lines": findings.get("error_lines"),
             "error_rate": findings.get("error_rate"),
             "pattern_counts": findings.get("pattern_counts"),
-            "high_error_windows": findings.get("high_error_windows") or [],
-            "sample_error_lines": findings.get("sample_error_lines") or [],
+            "high_error_windows": (findings.get("high_error_windows") or [])[:10],
+            "sample_error_lines": llm_samples,
         }
         prompt = (
             "You are an SRE assistant. Explain these log findings for a human operator. "
@@ -71,6 +80,14 @@ class LLMSummarizer:
             f"Total lines in log: {total_lines}\n"
             f"Lines matching this query: {total_matches} ({pct} of all lines)"
         )
+        # Evenly spread up to 30 matches for the LLM
+        LLM_MAX_SAMPLES = 30
+        if len(matches) <= LLM_MAX_SAMPLES:
+            llm_matches = matches
+        else:
+            step = len(matches) / LLM_MAX_SAMPLES
+            llm_matches = [matches[int(i * step)] for i in range(LLM_MAX_SAMPLES)]
+
         prompt = (
             "You are helping investigate production incidents. "
             "You MUST complete every section fully before stopping.\n\n"
@@ -83,7 +100,7 @@ class LLMSummarizer:
             "---\n"
             f"Operator question: {prompt_text}\n\n"
             f"Statistics:\n{stats}\n\n"
-            f"Matching log lines ({len(matches)} shown):\n{json.dumps(matches, separators=(',', ':'))}"
+            f"Matching log lines ({len(llm_matches)} of {len(matches)} shown):\n{json.dumps(llm_matches, separators=(',', ':'))}"
         )
         _log(f"LLM prompt size: {len(prompt)} chars (~{len(prompt) // 4} tokens)")
         return self._call(prompt)
