@@ -113,8 +113,8 @@ class MCPSession:
                 env=env,
                 cwd=str(ROOT),
             )
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+        except OSError:
+            return {"ok": False, "error": "Failed to launch MCP service process"}
 
         # Wait for the HTTP service to become ready (up to 10 s).
         base_url = f"http://127.0.0.1:{self._service_port}"
@@ -123,8 +123,12 @@ class MCPSession:
         last_exc: Exception = RuntimeError("timeout waiting for service")
         while time.monotonic() < deadline:
             if not self.running:
-                stderr = self.process.stderr.read() if self.process.stderr else ""
-                return {"ok": False, "error": f"Service exited early. stderr: {stderr}"}
+                # Process exited – read at most 2 KB of diagnostics (non-blocking
+                # since the child has already closed the pipe).
+                stderr = ""
+                if self.process and self.process.stderr:
+                    stderr = self.process.stderr.read(2048)
+                return {"ok": False, "error": "Service exited early during startup"}
             try:
                 self.tools = self._client.list_tools()
                 break
@@ -133,7 +137,7 @@ class MCPSession:
                 time.sleep(0.3)
         else:
             self.stop()
-            return {"ok": False, "error": f"Service did not become ready: {last_exc}"}
+            return {"ok": False, "error": "Service did not become ready in time"}
 
         return {
             "ok": True,
@@ -166,8 +170,11 @@ class MCPSession:
             return {"error": "Server not running"}
         try:
             return self._client.call_tool(name, arguments)
-        except (RuntimeError, ConnectionError) as exc:
-            return {"error": str(exc)}
+        except RuntimeError:
+            # Tool-level error – message comes from the tool itself (safe to show)
+            return {"error": f"Tool '{name}' reported an error"}
+        except ConnectionError:
+            return {"error": "Could not reach MCP service"}
 
 
 session = MCPSession()
