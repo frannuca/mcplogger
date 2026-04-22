@@ -63,7 +63,7 @@ LLM_MODEL    = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 # ── MCP session (start server, handshake, call tools) ─────────────────────────
 
 class MCPSession:
-    """Manages the MCP server subprocess and JSON-RPC communication."""
+    """Manages the MCP server subprocess and JSON-RPC communication (stdio)."""
 
     def __init__(self) -> None:
         self.process: Optional[subprocess.Popen] = None
@@ -161,6 +161,53 @@ class MCPSession:
             "params": params,
         })
         return self._read()
+
+
+# ── HTTP service session ──────────────────────────────────────────────────────
+
+class MCPHttpSession:
+    """MCP session backed by the FastMCP HTTP service.
+
+    Thread-safe: each call_tool() invocation creates an independent
+    HTTP connection, so multiple threads can call tools concurrently.
+    """
+
+    def __init__(self, service_url: str) -> None:
+        from server.http_client import MCPHttpClient
+        self._client = MCPHttpClient(service_url)
+        self.tools: List[Dict] = []
+        self.tools_for_llm: List[Dict] = []
+
+    def start(self) -> bool:
+        try:
+            raw_tools = self._client.list_tools()
+        except ConnectionError as exc:
+            print(f"✗ Could not connect to HTTP service: {exc}")
+            return False
+        self.tools = raw_tools
+        self.tools_for_llm = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("inputSchema", {}),
+                },
+            }
+            for t in raw_tools
+        ]
+        return True
+
+    def stop(self) -> None:
+        pass  # HTTP service manages its own lifecycle
+
+    def call_tool(self, name: str, arguments: Dict) -> Optional[Dict]:
+        try:
+            result = self._client.call_tool(name, arguments)
+            # Wrap in structuredContent so print_result() works identically
+            return {"structuredContent": {"result": result}}
+        except (RuntimeError, ConnectionError) as exc:
+            return {"error": str(exc)}
 
 
 # ── LLM tool selection ────────────────────────────────────────────────────────
@@ -356,7 +403,30 @@ def resolve_log_files(argv_files: List[str]) -> List[str]:
 
 
 def main() -> None:
-    log_files = resolve_log_files(sys.argv[1:])
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Natural-language MCP log analyzer (LLM-powered tool selection)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "log_files",
+        nargs="*",
+        metavar="LOG_FILE",
+        help="Log files to watch (falls back to LOG_FILES env var if omitted)",
+    )
+    parser.add_argument(
+        "--service-url",
+        metavar="URL",
+        default=None,
+        help=(
+            "Connect to a running FastMCP HTTP service instead of spawning a "
+            "stdio subprocess.  Example: http://127.0.0.1:8000  "
+            "Start the service with: python server/service.py"
+        ),
+    )
+    args = parser.parse_args()
+
+    log_files = resolve_log_files(args.log_files)
     if not log_files:
         print("⚠️  No log files.  Pass as args or set LOG_FILES in .env")
         sys.exit(1)
@@ -365,15 +435,21 @@ def main() -> None:
         print(f"⚠️  Not found: {', '.join(missing)}")
         sys.exit(1)
 
-    session = MCPSession()
-    print("🚀  Starting MCP server …")
+    if args.service_url:
+        session = MCPHttpSession(args.service_url)
+        print(f"🌐  Connecting to HTTP service: {args.service_url} …")
+    else:
+        session = MCPSession()
+        print("🚀  Starting MCP server …")
+
     if not session.start():
         sys.exit(1)
     try:
         repl(session, log_files)
     finally:
         session.stop()
-        print("🛑  Server stopped.")
+        if not args.service_url:
+            print("🛑  Server stopped.")
 
 
 if __name__ == "__main__":
