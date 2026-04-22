@@ -3,8 +3,9 @@
 Interactive log query REPL.
 
 Usage:
-    python ask.py                          # uses LOG_FILES from .env
-    python ask.py app.log worker.log       # explicit log files
+    python ask.py                          # uses LOG_FILES from .env  (stdio mode)
+    python ask.py app.log worker.log       # explicit log files         (stdio mode)
+    python ask.py --service-url http://127.0.0.1:8000  # connect to HTTP service
 
 Commands at the prompt:
     <any question>   → search logs for that problem
@@ -37,7 +38,7 @@ def resolve_log_files(argv_files: List[str]) -> List[str]:
     return files
 
 
-# ── low-level MCP client ─────────────────────────────────────────────────────
+# ── low-level MCP client (stdio) ─────────────────────────────────────────────
 
 class MCPSession:
     def __init__(self):
@@ -112,6 +113,53 @@ class MCPSession:
         if "error" in resp:
             return {"error": resp["error"]}
         return resp.get("result")
+
+    def analyze(self, log_files: List[str]) -> Optional[Dict]:
+        return self.call_tool("analyze_logs", {
+            "log_files": log_files,
+            "bucket_minutes": 5,
+            "high_error_threshold": 0.20,
+            "max_samples": 30,
+        })
+
+    def search(self, prompt: str, log_files: List[str], max_matches: int = DEFAULT_MAX_MATCHES) -> Optional[Dict]:
+        return self.call_tool("search_logs_tool", {
+            "prompt": prompt,
+            "log_files": log_files,
+            "max_matches": max_matches,
+            "context_lines": DEFAULT_CONTEXT_LINES,
+        })
+
+
+# ── HTTP service client ───────────────────────────────────────────────────────
+
+class MCPHttpSession:
+    """MCP session backed by the FastMCP HTTP service.
+
+    Thread-safe: each tool call creates an independent connection.
+    Use when you need concurrent access from multiple threads.
+    """
+
+    def __init__(self, service_url: str) -> None:
+        from server.http_client import MCPHttpClient
+        self._client = MCPHttpClient(service_url)
+
+    def start(self) -> bool:
+        try:
+            self._client.list_tools()
+            return True
+        except ConnectionError as exc:
+            print(f"✗ Could not connect to HTTP service: {exc}")
+            return False
+
+    def stop(self) -> None:
+        pass  # HTTP service manages its own lifecycle
+
+    def call_tool(self, name: str, arguments: Dict) -> Optional[Dict]:
+        try:
+            return {"structuredContent": {"result": self._client.call_tool(name, arguments)}}
+        except (RuntimeError, ConnectionError) as exc:
+            return {"error": str(exc)}
 
     def analyze(self, log_files: List[str]) -> Optional[Dict]:
         return self.call_tool("analyze_logs", {
@@ -242,7 +290,7 @@ Commands
 """
 
 
-def repl(session: MCPSession, log_files: List[str]):
+def repl(session, log_files: List[str]):
     print(f"\n✅  Server ready. Watching: {', '.join(log_files) or '(none)'}")
     print("    Type a question, 'analyze', or 'help'.\n")
 
@@ -289,7 +337,30 @@ def repl(session: MCPSession, log_files: List[str]):
 # ── entry point ──────────────────────────────────────────────────────────────
 
 def main():
-    log_files = resolve_log_files(sys.argv[1:])
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Interactive log query REPL",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "log_files",
+        nargs="*",
+        metavar="LOG_FILE",
+        help="Log files to watch (falls back to LOG_FILES env var if omitted)",
+    )
+    parser.add_argument(
+        "--service-url",
+        metavar="URL",
+        default=None,
+        help=(
+            "Connect to a running FastMCP HTTP service instead of spawning a "
+            "stdio subprocess.  Example: http://127.0.0.1:8000  "
+            "Start the service with: python server/service.py"
+        ),
+    )
+    args = parser.parse_args()
+
+    log_files = resolve_log_files(args.log_files)
 
     if not log_files:
         print("⚠️  No log files specified.")
@@ -303,8 +374,13 @@ def main():
         print(f"⚠️  File(s) not found: {', '.join(missing)}")
         sys.exit(1)
 
-    session = MCPSession()
-    print("🚀  Starting MCP log-analyzer server …")
+    if args.service_url:
+        session = MCPHttpSession(args.service_url)
+        print(f"🌐  Connecting to HTTP service: {args.service_url} …")
+    else:
+        session = MCPSession()
+        print("🚀  Starting MCP log-analyzer server …")
+
     if not session.start():
         print("✗  Could not start server.")
         sys.exit(1)
@@ -313,7 +389,8 @@ def main():
         repl(session, log_files)
     finally:
         session.stop()
-        print("🛑  Server stopped.")
+        if not args.service_url:
+            print("🛑  Server stopped.")
 
 
 if __name__ == "__main__":

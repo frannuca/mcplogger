@@ -2,18 +2,24 @@
 """
 Flask web frontend for the MCP Log Analyzer.
 
-Manages an MCP server subprocess and exposes REST endpoints that the
-browser-side JS calls. The browser never touches the MCP server directly.
+Spawns the MCP Log Analyzer as an **HTTP service** (FastMCP
+``streamable-http`` transport) and forwards REST API calls to it via
+:class:`~server.http_client.MCPHttpClient`.
 
-Usage:
-    uv run web/app.py                 # starts on http://localhost:5000
-    uv run web/app.py --port 8888     # custom port
+Compared with the previous stdio-pipe approach, the HTTP service
+handles concurrent requests natively, so multiple browser tabs or API
+clients can query the analyzer at the same time without contention.
+
+Usage
+-----
+    python web/app.py                 # starts on http://localhost:5000
+    python web/app.py --port 8888     # custom port
 """
 
-import json
+import os
 import subprocess
 import sys
-import threading
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -23,6 +29,12 @@ from flask import Flask, jsonify, render_template, request
 ROOT = Path(__file__).resolve().parent.parent          # mcplogger/
 MAIN_PY = ROOT / "main.py"
 
+# Port used by the embedded MCP HTTP service.
+_DEFAULT_MCP_SERVICE_PORT = 8787
+
+sys.path.insert(0, str(ROOT))
+from server.http_client import MCPHttpClient  # noqa: E402
+
 app = Flask(
     __name__,
     template_folder=str(Path(__file__).parent / "templates"),
@@ -31,13 +43,23 @@ app = Flask(
 
 # ── MCP session state ─────────────────────────────────────────────────────────
 
+
 class MCPSession:
-    def __init__(self):
+    """Manages the lifecycle of the MCP HTTP service subprocess.
+
+    The web app spawns ``main.py --transport streamable-http`` as a child
+    process on *start* and connects to it with :class:`MCPHttpClient`.
+    Because the HTTP client creates an independent connection per call, all
+    Flask request-handler threads can issue tool calls concurrently without
+    any additional locking.
+    """
+
+    def __init__(self) -> None:
         self.process: Optional[subprocess.Popen] = None
-        self._req_id = 0
-        self._lock = threading.Lock()
-        self.config: Dict = {}       # last applied config from the UI
-        self.tools: List[Dict] = []  # from tools/list
+        self.config: Dict = {}
+        self.tools: List[Dict] = []
+        self._client: Optional[MCPHttpClient] = None
+        self._service_port: int = _DEFAULT_MCP_SERVICE_PORT
 
     @property
     def running(self) -> bool:
@@ -52,7 +74,7 @@ class MCPSession:
         self.config = config
 
         # Build env vars from the UI config
-        env = {**__import__("os").environ}
+        env = {**os.environ}
         mode = config.get("mode", "local")
         if mode == "remote":
             env["OPENAI_API_KEY"] = config.get("api_key", "")
@@ -74,38 +96,54 @@ class MCPSession:
         log_files = config.get("log_files", [])
         env["LOG_FILES"] = ",".join(log_files)
 
+        port = config.get("service_port", _DEFAULT_MCP_SERVICE_PORT)
+        self._service_port = int(port)
+
         try:
             self.process = subprocess.Popen(
-                [sys.executable, str(MAIN_PY)],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
+                [
+                    sys.executable,
+                    str(MAIN_PY),
+                    "--transport", "streamable-http",
+                    "--host", "127.0.0.1",
+                    "--port", str(self._service_port),
+                ],
                 stderr=subprocess.PIPE,
                 text=True,
-                bufsize=1,
                 env=env,
                 cwd=str(ROOT),
             )
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+        except OSError:
+            return {"ok": False, "error": "Failed to launch MCP service process"}
 
-        # handshake
-        resp = self._send("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "web-ui", "version": "1.0.0"},
-        })
-        if resp is None or "error" in resp:
+        # Wait for the HTTP service to become ready (up to 10 s).
+        base_url = f"http://127.0.0.1:{self._service_port}"
+        self._client = MCPHttpClient(base_url)
+        deadline = time.monotonic() + 10.0
+        last_exc: Exception = RuntimeError("timeout waiting for service")
+        while time.monotonic() < deadline:
+            if not self.running:
+                # Process exited – read at most 2 KB of diagnostics (non-blocking
+                # since the child has already closed the pipe).
+                if self.process and self.process.stderr:
+                    self.process.stderr.read(2048)
+                return {"ok": False, "error": "Service exited early during startup"}
+            try:
+                self.tools = self._client.list_tools()
+                break
+            except ConnectionError as exc:
+                last_exc = exc
+                time.sleep(0.3)
+        else:
             self.stop()
-            return {"ok": False, "error": f"Handshake failed: {resp}"}
+            return {"ok": False, "error": "Service did not become ready in time"}
 
-        self._write({"jsonrpc": "2.0", "method": "notifications/initialized"})
-
-        # fetch tools
-        tl = self._send("tools/list", {})
-        if tl and "result" in tl:
-            self.tools = tl["result"].get("tools", [])
-
-        return {"ok": True, "pid": self.process.pid, "tools": len(self.tools)}
+        return {
+            "ok": True,
+            "pid": self.process.pid,
+            "tools": len(self.tools),
+            "service_url": f"{base_url}/mcp",
+        }
 
     def stop(self) -> Dict:
         if self.process:
@@ -115,61 +153,27 @@ class MCPSession:
             except subprocess.TimeoutExpired:
                 self.process.kill()
             self.process = None
+        self._client = None
         self.tools = []
         return {"ok": True}
 
     # ── tool calls ─────────────────────────────────────────────────────────
 
     def call_tool(self, name: str, arguments: Dict) -> Optional[Dict]:
-        if not self.running:
+        """Call an MCP tool via the HTTP service.
+
+        Thread-safe: :class:`MCPHttpClient` creates a fresh connection per
+        call, so concurrent Flask threads do not block each other.
+        """
+        if not self.running or self._client is None:
             return {"error": "Server not running"}
-        with self._lock:
-            resp = self._send("tools/call", {"name": name, "arguments": arguments})
-        if resp is None:
-            return {"error": "No response from server"}
-        if "error" in resp:
-            return {"error": resp["error"]}
-
-        result = resp.get("result", {})
-        return self._extract_data(result)
-
-    @staticmethod
-    def _extract_data(result: Dict) -> Dict:
-        """Unpack FastMCP's response wrapper to get the actual tool return value."""
-        # FastMCP wraps structured tools as: { structuredContent: { result: {…} } }
-        sc = result.get("structuredContent")
-        if isinstance(sc, dict):
-            inner = sc.get("result")
-            if isinstance(inner, dict):
-                return inner
-            return sc
-
-        # Fallback: unstructured tools put JSON in content[0].text
-        content = result.get("content")
-        if isinstance(content, list) and content:
-            first = content[0]
-            if isinstance(first, dict) and first.get("type") == "text":
-                try:
-                    return json.loads(first["text"])
-                except (json.JSONDecodeError, KeyError):
-                    pass
-
-        return result
-
-    # ── transport ──────────────────────────────────────────────────────────
-
-    def _write(self, obj: Dict):
-        self.process.stdin.write(json.dumps(obj) + "\n")
-        self.process.stdin.flush()
-
-    def _read(self) -> Optional[Dict]:
-        line = self.process.stdout.readline()
-        return json.loads(line) if line else None
-
-    def _send(self, method: str, params: Dict) -> Optional[Dict]:
-        self._req_id += 1
-        self._write({"jsonrpc": "2.0", "id": self._req_id, "method": method, "params": params})
-        return self._read()
+        try:
+            return self._client.call_tool(name, arguments)
+        except RuntimeError:
+            # Tool-level error – message comes from the tool itself (safe to show)
+            return {"error": f"Tool '{name}' reported an error"}
+        except ConnectionError:
+            return {"error": "Could not reach MCP service"}
 
 
 session = MCPSession()
