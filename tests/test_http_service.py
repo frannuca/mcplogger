@@ -331,7 +331,7 @@ class TestMCPHttpClientConcurrency:
             ("analyze_logs", {"log_files": [str(log_file)], "max_samples": 5}),
         ]
 
-        def run_task(tool_name: str, tool_args: Dict) -> Dict:
+        def run_task(tool_name: str, tool_args: Dict[str, Any]) -> Dict:
             return client.call_tool(tool_name, tool_args)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as executor:

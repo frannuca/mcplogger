@@ -125,9 +125,8 @@ class MCPSession:
             if not self.running:
                 # Process exited – read at most 2 KB of diagnostics (non-blocking
                 # since the child has already closed the pipe).
-                stderr = ""
                 if self.process and self.process.stderr:
-                    stderr = self.process.stderr.read(2048)
+                    self.process.stderr.read(2048)
                 return {"ok": False, "error": "Service exited early during startup"}
             try:
                 self.tools = self._client.list_tools()
