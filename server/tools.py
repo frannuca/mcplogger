@@ -13,6 +13,7 @@ from config.constants import (
     DEFAULT_HIGH_ERROR_THRESHOLD,
     DEFAULT_MAX_MATCHES,
     DEFAULT_MAX_SAMPLES,
+    DEFAULT_SUMMARY_CONTEXTS,
 )
 from core.analyzer import LogAnalyzer
 from core.file_reader import get_reader
@@ -183,6 +184,10 @@ def search_logs_tool(
         Optional[str],
         Field(description="Override the LLM model name for the AI explanation."),
     ] = None,
+    summary_contexts: Annotated[
+        int,
+        Field(description="Number of top-ranked matches to use for the LLM summary.")
+    ] = DEFAULT_SUMMARY_CONTEXTS,
 ) -> Dict:
     """
     Search log files for lines related to a specific problem and return matching lines with context and an AI explanation.

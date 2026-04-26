@@ -13,6 +13,7 @@ from .constants import (
     DEFAULT_LLM_BASE_URL,
     DEFAULT_MAX_SAMPLES,
     DEFAULT_OPENAI_MODEL,
+    DEFAULT_SUMMARY_CONTEXTS,
 )
 
 # Load environment variables from .env file
@@ -38,6 +39,7 @@ class Config:
     # Optional hour-of-day range filter (0–23). Lines outside [hour_min, hour_max] are excluded.
     hour_min: Optional[int] = None
     hour_max: Optional[int] = None
+    summary_contexts: int = DEFAULT_SUMMARY_CONTEXTS
 
 
 def parse_paths_from_env() -> List[Path]:

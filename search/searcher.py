@@ -44,8 +44,11 @@ def search_logs(
     max_matches: int = DEFAULT_MAX_MATCHES,
     context_lines: int = DEFAULT_CONTEXT_LINES,
     prompt_threshold: float = EMBEDDING_SIMILARITY_THRESHOLD,
+    summary_contexts: int = None,
 ) -> Dict:
     """Dispatch to semantic or regex search depending on config."""
+    if summary_contexts is not None:
+        cfg.summary_contexts = summary_contexts
     if cfg.llm_embedding_url:
         _log(f"Using semantic (embedding) search → {cfg.llm_embedding_url}")
         return _semantic_search(cfg, prompt, max_matches, context_lines, prompt_threshold)
@@ -241,8 +244,8 @@ def _make_match(
     return {
         "file": path_str,
         "line_number": idx + 1,
-        "line": clean[:500],
-        "context": snippet[:1200],
+        "line": clean[:1024],
+        "context": snippet[:2048],
     }
 
 
@@ -273,9 +276,10 @@ def _build_response(
                 base_url=cfg.llm_base_url,
             )
             total_lines = sum(response["lines_buffered"].values())
+            n_contexts = getattr(cfg, "summary_contexts", 20)
             response["human_summary"] = llm.summarize_search(
                 prompt,
-                [m["context"] for m in matches[:20]],
+                [m["context"] for m in matches[:n_contexts]],
                 total_matches=len(matches),
                 total_lines=total_lines,
             )

@@ -66,6 +66,7 @@ function buildConfig() {
     cfg.api_key = document.getElementById("apiKey").value.trim();
     cfg.model = document.getElementById("remoteModel").value.trim() || "gpt-4o-mini";
   }
+  cfg.summary_contexts = parseInt(document.getElementById("cfgSummaryContexts").value) || 20;
   return cfg;
 }
 

@@ -1,3 +1,5 @@
+# Number of top-ranked matches to use for LLM summary (default)
+DEFAULT_SUMMARY_CONTEXTS: int = 20
 """
 constants.py – single source of truth for every magic value in the project.
 
